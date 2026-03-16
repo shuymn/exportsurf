@@ -17,13 +17,13 @@ Exported identifier を「unused error」ではなく「unexport 候補レポー
 - symbol ごとに internal/external reference を集計する
 - `scan` の正本は diagnostic ではなく candidate report とする
 - candidate report は `symbol`, `kind`, `defined_in`, `internal_ref_count`, `external_ref_pkg_count`, `external_ref_examples`, `confidence`, `reasons` を中心に持つ
-- external test 参照は flag/config で切り替える
+- external test 参照は config の `treat_tests_as_external` を既定値とし、CLI flag で追加有効化できる
 - `package main` / `cmd/**` / generated / test runner entrypoint は除外または low confidence に落とし、report に理由を残せる形にする
 - baseline は accepted candidates の保存形式として使う
 - repo 固有の除外対象と rule は config file で外出しする
+- config は exact-match の `exclude_packages` / `exclude_symbols` と `treat_tests_as_external` を持つ
 
 ## Open Questions
-- `treat_tests_as_external` の default を config と CLI flag のどちらが優先するか
 - `go/packages` の load semantics が workspace 境界で不安定なら spike に切る
 - `package main` や plugin-like surface を exclude と low-confidence のどちらで扱うか
 - reflect / plugin / registry heuristics の拡張は non-blocking

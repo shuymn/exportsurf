@@ -23,6 +23,8 @@ The scanner currently:
 - downgrades confidence for packages under `cmd/**`
 - downgrades confidence for generated files
 - downgrades confidence for `go test` entrypoints such as `TestXxx`, `BenchmarkXxx`, `FuzzXxx`, and `ExampleXxx`
+- reads repo-local config from YAML via `--config`
+- filters exact-match package and symbol suppressions from config
 
 ## Usage
 
@@ -44,11 +46,30 @@ Treat external `_test.go` references as external uses:
 ./bin/exportsurf scan ./... --json --treat-tests-as-external
 ```
 
+Apply repo-local suppressions from config:
+
+```bash
+./bin/exportsurf scan ./... --json --config ./exportsurf.yaml
+./bin/exportsurf diff ./... --baseline ./exportsurf-baseline.json --config ./exportsurf.yaml
+```
+
 You can also run it without building first:
 
 ```bash
 go run . scan ./... --json
 ```
+
+Config schema:
+
+```yaml
+exclude_packages:
+  - github.com/your/module/cmd/tool
+exclude_symbols:
+  - github.com/your/module/pkg/api.LegacyExport
+treat_tests_as_external: true
+```
+
+`exclude_packages` and `exclude_symbols` are exact-match filters. `treat_tests_as_external` defaults to `false`; the CLI flag is an additive override on top of config.
 
 ## Output
 
@@ -109,6 +130,7 @@ lefthook install
 ## Repository Layout
 
 - `main.go`: CLI entrypoint
+- `internal/config`: YAML config contract
 - `internal/scan`: package loading and reference aggregation
 - `pkg/report`: report serialization
 - `testdata/fixtures`: contract fixtures for scanner behavior

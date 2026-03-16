@@ -10,6 +10,8 @@
 - MVP では exported package-level の `func`, `type`, `var`, `const` のみを対象にする
 - methods, fields, explain, Markdown/SARIF, `multichecker` adapter は後続テーマに分離する
 - suppress は inline annotation ではなく baseline と config 方式で扱う前提にする
+- config は YAML で `exclude_packages`, `exclude_symbols`, `treat_tests_as_external` を受け、symbol/package suppress を exact match で適用する
+- `treat_tests_as_external` は config を既定値にし、CLI flag を追加有効化として扱う
 - `package main`, `cmd/**`, generated, test runner entrypoint のような low-confidence surface は diagnostic error にせず、除外または reason 付き候補として扱う
 
 ## Rejected Alternatives
