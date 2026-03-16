@@ -1,0 +1,43 @@
+- [ ] Theme: `scan --json` を証拠付き候補レポートとして閉じる
+  - Outcome: `exportsurf scan ./... --json` が `symbol`, `kind`, `defined_in`, `internal_ref_count`, `external_ref_pkg_count`, `external_ref_examples`, `confidence`, `reasons` を含む候補レポートを返す
+  - Goal: scan の public contract を「unused 診断」ではなく人間が棚卸し判断できる candidate report として閉じる
+  - Must Not Break: CI fail 前提の診断 UX に寄せない; `package main` / `cmd/**` / generated / test runner entrypoint を high-confidence 候補として出さない; `go run main.go scan ./... --json` が panic や error で失敗しない
+  - Non-goals: baseline diff; explain; Markdown/SARIF; methods/fields の実装; reflect/plugin/registry pattern の高度 heuristic
+  - Acceptance (EARS):
+    - When `scan` を fixture に対して実行したとき、候補 JSON は `external_ref_examples`, `confidence`, `reasons` を含み、棚卸し判断に必要な証拠を返す
+    - If symbol が `package main`, `cmd/**`, generated file, go test entrypoint に属するとき、scanner はそれを除外または non-high-confidence とし、理由を report に残す
+    - If 現在の repo 全体を `scan ./... --json` したとき、command は panic や error で失敗しない
+  - Evidence: `run=go test ./... -run 'TestScanJSONContract|TestRunCurrentModuleDoesNotPanic' && go run . scan ./testdata/fixtures/basic/... --json && go run . scan ./testdata/fixtures/testrunner/... --json && go run main.go scan ./... --json; oracle=fixture replay と JSON contract assertion; visibility=implementation-visible; controls=[]; missing=[agent,context]; companion=subagent replay of the targeted go test and all go run scan commands; notes=public contract は evidence-rich CLI JSON`
+  - Gates: `static`, `integration`, `system`
+  - Executable doc: `go test ./... -run 'TestScanJSONContract|TestRunCurrentModuleDoesNotPanic'` と `go run . scan ./testdata/fixtures/basic/... --json` と `go run . scan ./testdata/fixtures/testrunner/... --json` と `go run main.go scan ./... --json`
+  - Why not split vertically further?: JSON schema だけ、または confidence だけでは user-facing contract が閉じず、scan を report tool として運用できる根拠にならない
+  - Escalate if: low-confidence surface の扱いが fixture だけでは一意に決まらず、除外と reason 付与の境界が安定しない
+
+- [ ] Theme: baseline diff で既知候補を閉じ込め、新規候補だけを見られる
+  - Outcome: `exportsurf diff ./... --baseline ...` で未受理の新規候補だけを確認できる
+  - Goal: report tool として運用可能な差分確認 UX を閉じる
+  - Must Not Break: inline suppression を要求しない; source location だけに依存した不安定 key を使わない; baseline が evidence 更新だけで無駄に churn しない
+  - Non-goals: explain; Markdown/SARIF; advanced ranking; methods/fields; golangci-lint/vettool integration
+  - Acceptance (EARS):
+    - When baseline に既知候補が含まれるとき、`diff` は一致する accepted candidate を除外し、新規または未受理の候補だけを出力する
+    - If symbol identity が不変なまま evidence が更新されたとき、diff は重複候補を作らず stable key に基づいて比較する
+  - Evidence: `run=go test ./... -run TestBaselineDiffContract && go run . diff ./testdata/fixtures/basic/... --baseline ./testdata/baseline/basic.json; oracle=fixture replay と baseline diff assertion; visibility=implementation-visible; controls=[]; missing=[agent,context]; companion=subagent replay of the targeted go test and diff command; notes=運用契約は new candidate only`
+  - Gates: `static`, `integration`, `system`
+  - Executable doc: `go test ./... -run TestBaselineDiffContract` と `go run . diff ./testdata/fixtures/basic/... --baseline ./testdata/baseline/basic.json`
+  - Why not split vertically further?: baseline 保存だけでは user-visible value がなく、diff まで揃って初めて運用契約になる
+  - Escalate if: stable symbol identity を package path + object 名称だけで表せず baseline 互換性が揺れる
+
+- [ ] Theme: config で除外対象と scan rule を外出しできる
+  - Outcome: `exportsurf scan` / `diff` が config file から package/symbol 除外と `treat_tests_as_external` を読める
+  - Goal: repo 固有の suppress と rule を inline comment ではなく設定で扱えるようにする
+  - Must Not Break: config 無しで既定挙動が変わらない; baseline 運用を置き換えない; methods/fields 未対応なのに config だけ先行公開しない
+  - Non-goals: methods/fields 実装; confidence heuristic の追加; explain; Markdown/SARIF
+  - Acceptance (EARS):
+    - When config で package や symbol を除外したとき、`scan` と `diff` はその除外を反映する
+    - If config で `treat_tests_as_external` を有効にしたとき、flag 無しでも external `_test.go` 参照が external use に加算される
+    - If config が存在しないとき、scanner は既定値で動作する
+  - Evidence: `run=go test ./... -run 'TestConfigContract|TestBaselineDiffContract' && go run . scan ./testdata/fixtures/basic/... --config ./testdata/config/basic.yaml --json && go run . diff ./testdata/fixtures/basic/... --config ./testdata/config/basic.yaml --baseline ./testdata/baseline/basic.json; oracle=fixture replay と config-driven contract assertion; visibility=implementation-visible; controls=[]; missing=[agent,context]; companion=subagent replay of the targeted go test and both config-driven commands; notes=suppress は nolint ではなく config/baseline`
+  - Gates: `static`, `integration`, `system`
+  - Executable doc: `go test ./... -run 'TestConfigContract|TestBaselineDiffContract'` と `go run . scan ./testdata/fixtures/basic/... --config ./testdata/config/basic.yaml --json` と `go run . diff ./testdata/fixtures/basic/... --config ./testdata/config/basic.yaml --baseline ./testdata/baseline/basic.json`
+  - Why not split vertically further?: config parse だけ、または scan だけでは user-visible suppress contract が閉じず、diff まで含めて初めて repo 運用の意味が出る
+  - Escalate if: config schema をこの段階で固定しないと後続 Theme の replay path が揺れる
