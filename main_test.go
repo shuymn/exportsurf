@@ -20,7 +20,7 @@ type candidateReport struct {
 
 func TestScanJSONContract(t *testing.T) {
 	t.Run("basic fixture", func(t *testing.T) {
-		got := runScanCLI(t, "scan", "./testdata/fixtures/basic/...", "--json")
+		got := runCandidateCLI(t, "scan", "./testdata/fixtures/basic/...", "--json")
 
 		want := []candidateReport{
 			{
@@ -101,7 +101,7 @@ func TestScanJSONContract(t *testing.T) {
 	})
 
 	t.Run("external tests are opt-in", func(t *testing.T) {
-		withoutTests := runScanCLI(t, "scan", "./testdata/fixtures/withtests/...", "--json")
+		withoutTests := runCandidateCLI(t, "scan", "./testdata/fixtures/withtests/...", "--json")
 		wantWithoutTests := []candidateReport{
 			{
 				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
@@ -118,7 +118,13 @@ func TestScanJSONContract(t *testing.T) {
 			t.Fatalf("unexpected output without external tests\nwant: %#v\ngot: %#v", wantWithoutTests, withoutTests)
 		}
 
-		withTests := runScanCLI(t, "scan", "./testdata/fixtures/withtests/...", "--json", "--treat-tests-as-external")
+		withTests := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/withtests/...",
+			"--json",
+			"--treat-tests-as-external",
+		)
 		wantWithTests := []candidateReport{
 			{
 				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
@@ -141,7 +147,7 @@ func TestScanJSONContract(t *testing.T) {
 	})
 
 	t.Run("go test entrypoints are downgraded but helpers remain", func(t *testing.T) {
-		got := runScanCLI(t, "scan", "./testdata/fixtures/testrunner/...", "--json")
+		got := runCandidateCLI(t, "scan", "./testdata/fixtures/testrunner/...", "--json")
 
 		want := []candidateReport{
 			{
@@ -212,7 +218,74 @@ func TestScanJSONContract(t *testing.T) {
 	})
 }
 
-func runScanCLI(t *testing.T, args ...string) []candidateReport {
+func TestBaselineDiffContract(t *testing.T) {
+	got := runCandidateCLI(
+		t,
+		"diff",
+		"./testdata/fixtures/basic/...",
+		"--baseline",
+		"./testdata/baseline/basic.json",
+	)
+
+	want := []candidateReport{
+		{
+			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/cmd/tool.CommandCandidate",
+			Kind:                "func",
+			DefinedIn:           "testdata/fixtures/basic/cmd/tool/main.go:3",
+			InternalRefCount:    0,
+			ExternalRefPkgCount: 0,
+			ExternalRefExamples: []string{},
+			Confidence:          "low",
+			Reasons:             []string{"package main", "package under cmd"},
+		},
+		{
+			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedConst",
+			Kind:                "const",
+			DefinedIn:           "testdata/fixtures/basic/lib/lib.go:7",
+			InternalRefCount:    1,
+			ExternalRefPkgCount: 0,
+			ExternalRefExamples: []string{},
+			Confidence:          "high",
+			Reasons:             []string{},
+		},
+		{
+			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedVar",
+			Kind:                "var",
+			DefinedIn:           "testdata/fixtures/basic/lib/lib.go:9",
+			InternalRefCount:    1,
+			ExternalRefPkgCount: 0,
+			ExternalRefExamples: []string{},
+			Confidence:          "high",
+			Reasons:             []string{},
+		},
+		{
+			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.NewCandidate",
+			Kind:                "func",
+			DefinedIn:           "testdata/fixtures/basic/lib/lib.go:11",
+			InternalRefCount:    1,
+			ExternalRefPkgCount: 0,
+			ExternalRefExamples: []string{},
+			Confidence:          "high",
+			Reasons:             []string{},
+		},
+		{
+			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.UsedExternally",
+			Kind:                "type",
+			DefinedIn:           "testdata/fixtures/basic/lib/lib.go:5",
+			InternalRefCount:    0,
+			ExternalRefPkgCount: 1,
+			ExternalRefExamples: []string{"testdata/fixtures/basic/app/app.go:5"},
+			Confidence:          "high",
+			Reasons:             []string{},
+		},
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected diff output\nwant: %#v\ngot: %#v", want, got)
+	}
+}
+
+func runCandidateCLI(t *testing.T, args ...string) []candidateReport {
 	t.Helper()
 
 	var stdout bytes.Buffer
