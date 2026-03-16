@@ -22,6 +22,8 @@ type Options struct {
 	Patterns             []string
 	WorkingDir           string
 	TreatTestsAsExternal bool
+	ExcludePackages      []string
+	ExcludeSymbols       []string
 }
 
 type candidateState struct {
@@ -71,7 +73,7 @@ func Run(opts Options) ([]report.Candidate, error) {
 		results = append(results, state.candidate)
 	}
 
-	return results, nil
+	return filterCandidates(results, opts.ExcludePackages, opts.ExcludeSymbols), nil
 }
 
 func collectDefinitions(pkgs []*packages.Package, workingDir string) map[string]*candidateState {
@@ -259,6 +261,50 @@ func positionString(fset *token.FileSet, pos token.Pos, workingDir string) strin
 		name = rel
 	}
 	return filepath.ToSlash(fmt.Sprintf("%s:%d", name, position.Line))
+}
+
+func filterCandidates(
+	candidates []report.Candidate,
+	excludePackages []string,
+	excludeSymbols []string,
+) []report.Candidate {
+	if len(excludePackages) == 0 && len(excludeSymbols) == 0 {
+		return candidates
+	}
+
+	excludedPackages := make(map[string]struct{}, len(excludePackages))
+	for _, pkg := range excludePackages {
+		excludedPackages[pkg] = struct{}{}
+	}
+
+	excludedSymbols := make(map[string]struct{}, len(excludeSymbols))
+	for _, symbol := range excludeSymbols {
+		excludedSymbols[symbol] = struct{}{}
+	}
+
+	filtered := make([]report.Candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if _, ok := excludedSymbols[candidate.Symbol]; ok {
+			continue
+		}
+		if len(excludedPackages) > 0 {
+			if _, ok := excludedPackages[candidatePackagePath(candidate.Symbol)]; ok {
+				continue
+			}
+		}
+		filtered = append(filtered, candidate)
+	}
+
+	return filtered
+}
+
+func candidatePackagePath(symbol string) string {
+	idx := strings.LastIndex(symbol, ".")
+	if idx == -1 {
+		return ""
+	}
+
+	return symbol[:idx]
 }
 
 func samePackage(pkg *packages.Package, obj types.Object) bool {

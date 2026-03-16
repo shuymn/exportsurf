@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/shuymn/exportsurf/internal/baseline"
+	"github.com/shuymn/exportsurf/internal/config"
 	"github.com/shuymn/exportsurf/internal/scan"
 	"github.com/shuymn/exportsurf/pkg/report"
 )
@@ -38,6 +39,10 @@ func runScan(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	fileCfg, err := loadConfig(cfg.configPath)
+	if err != nil {
+		return err
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -47,7 +52,9 @@ func runScan(args []string, stdout io.Writer) error {
 	candidates, err := scan.Run(scan.Options{
 		Patterns:             cfg.patterns,
 		WorkingDir:           cwd,
-		TreatTestsAsExternal: cfg.treatTestsAsExternal,
+		TreatTestsAsExternal: cfg.treatTestsAsExternal || fileCfg.TreatTestsAsExternal,
+		ExcludePackages:      fileCfg.ExcludePackages,
+		ExcludeSymbols:       fileCfg.ExcludeSymbols,
 	})
 	if err != nil {
 		return err
@@ -58,6 +65,10 @@ func runScan(args []string, stdout io.Writer) error {
 
 func runDiff(args []string, stdout io.Writer) error {
 	cfg, err := parseDiffArgs(args)
+	if err != nil {
+		return err
+	}
+	fileCfg, err := loadConfig(cfg.configPath)
 	if err != nil {
 		return err
 	}
@@ -75,7 +86,9 @@ func runDiff(args []string, stdout io.Writer) error {
 	candidates, err := scan.Run(scan.Options{
 		Patterns:             cfg.patterns,
 		WorkingDir:           cwd,
-		TreatTestsAsExternal: cfg.treatTestsAsExternal,
+		TreatTestsAsExternal: cfg.treatTestsAsExternal || fileCfg.TreatTestsAsExternal,
+		ExcludePackages:      fileCfg.ExcludePackages,
+		ExcludeSymbols:       fileCfg.ExcludeSymbols,
 	})
 	if err != nil {
 		return err
@@ -94,12 +107,14 @@ func runDiff(args []string, stdout io.Writer) error {
 
 type scanConfig struct {
 	patterns             []string
+	configPath           string
 	treatTestsAsExternal bool
 }
 
 type diffConfig struct {
 	patterns             []string
 	baselinePath         string
+	configPath           string
 	treatTestsAsExternal bool
 }
 
@@ -110,11 +125,19 @@ func parseScanArgs(args []string) (scanConfig, error) {
 
 	var patterns []string
 	var jsonOutput bool
+	var err error
 
-	for _, arg := range args {
+	for idx := 0; idx < len(args); idx++ {
+		arg := args[idx]
+
 		switch {
 		case arg == "--json":
 			jsonOutput = true
+		case arg == "--config":
+			cfg.configPath, idx, err = parseRequiredPathFlag(args, idx, "--config", "config")
+			if err != nil {
+				return scanConfig{}, err
+			}
 		case arg == "--treat-tests-as-external":
 			cfg.treatTestsAsExternal = true
 		case arg == "":
@@ -143,20 +166,22 @@ func parseDiffArgs(args []string) (diffConfig, error) {
 	}
 
 	var patterns []string
+	var err error
 
 	for idx := 0; idx < len(args); idx++ {
 		arg := args[idx]
 
 		switch {
 		case arg == "--baseline":
-			idx++
-			if idx >= len(args) {
-				return diffConfig{}, usageError("--baseline requires a path")
+			cfg.baselinePath, idx, err = parseRequiredPathFlag(args, idx, "--baseline", "baseline")
+			if err != nil {
+				return diffConfig{}, err
 			}
-			if args[idx] == "" {
-				return diffConfig{}, usageError("empty baseline path is not allowed")
+		case arg == "--config":
+			cfg.configPath, idx, err = parseRequiredPathFlag(args, idx, "--config", "config")
+			if err != nil {
+				return diffConfig{}, err
 			}
-			cfg.baselinePath = args[idx]
 		case arg == "--treat-tests-as-external":
 			cfg.treatTestsAsExternal = true
 		case arg == "":
@@ -181,4 +206,29 @@ func parseDiffArgs(args []string) (diffConfig, error) {
 
 func usageError(format string, args ...any) error {
 	return fmt.Errorf(format, args...)
+}
+
+func parseRequiredPathFlag(args []string, idx int, flag, label string) (string, int, error) {
+	idx++
+	if idx >= len(args) {
+		return "", idx, usageError("%s requires a path", flag)
+	}
+	if args[idx] == "" {
+		return "", idx, usageError("empty %s path is not allowed", label)
+	}
+
+	return args[idx], idx, nil
+}
+
+func loadConfig(path string) (config.File, error) {
+	if path == "" {
+		return config.File{}, nil
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		return config.File{}, fmt.Errorf("load config: %w", err)
+	}
+
+	return cfg, nil
 }

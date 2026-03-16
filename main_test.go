@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -283,6 +285,205 @@ func TestBaselineDiffContract(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected diff output\nwant: %#v\ngot: %#v", want, got)
 	}
+}
+
+func TestConfigContract(t *testing.T) {
+	t.Run("scan and diff respect config-driven excludes", func(t *testing.T) {
+		scanGot := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/basic/...",
+			"--config",
+			"./testdata/config/basic.yaml",
+			"--json",
+		)
+
+		scanWant := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.Candidate",
+				Kind:                "type",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:3",
+				InternalRefCount:    4,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedVar",
+				Kind:                "var",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:9",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.GeneratedCandidate",
+				Kind:                "const",
+				DefinedIn:           "testdata/fixtures/basic/lib/generated.go:5",
+				InternalRefCount:    0,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "low",
+				Reasons:             []string{"generated file"},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.NewCandidate",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:11",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.UsedExternally",
+				Kind:                "type",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:5",
+				InternalRefCount:    0,
+				ExternalRefPkgCount: 1,
+				ExternalRefExamples: []string{"testdata/fixtures/basic/app/app.go:5"},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+		}
+
+		if !reflect.DeepEqual(scanGot, scanWant) {
+			t.Fatalf("unexpected scan output with config\nwant: %#v\ngot: %#v", scanWant, scanGot)
+		}
+
+		diffGot := runCandidateCLI(
+			t,
+			"diff",
+			"./testdata/fixtures/basic/...",
+			"--config",
+			"./testdata/config/basic.yaml",
+			"--baseline",
+			"./testdata/baseline/basic.json",
+		)
+
+		diffWant := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedVar",
+				Kind:                "var",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:9",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.NewCandidate",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:11",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.UsedExternally",
+				Kind:                "type",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:5",
+				InternalRefCount:    0,
+				ExternalRefPkgCount: 1,
+				ExternalRefExamples: []string{"testdata/fixtures/basic/app/app.go:5"},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+		}
+
+		if !reflect.DeepEqual(diffGot, diffWant) {
+			t.Fatalf("unexpected diff output with config\nwant: %#v\ngot: %#v", diffWant, diffGot)
+		}
+	})
+
+	t.Run("config can enable treat_tests_as_external", func(t *testing.T) {
+		got := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/withtests/...",
+			"--config",
+			"./testdata/config/withtests.yaml",
+			"--json",
+		)
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/withtests/lib/lib.go:3",
+				InternalRefCount:    0,
+				ExternalRefPkgCount: 1,
+				ExternalRefExamples: []string{"testdata/fixtures/withtests/lib/external_test.go:10"},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected scan output when config enables external tests\nwant: %#v\ngot: %#v", want, got)
+		}
+	})
+
+	t.Run("missing config keeps default behavior", func(t *testing.T) {
+		got := runCandidateCLI(t, "scan", "./testdata/fixtures/withtests/...", "--json")
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/withtests/lib/lib.go:3",
+				InternalRefCount:    0,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected scan output without config\nwant: %#v\ngot: %#v", want, got)
+		}
+	})
+
+	t.Run("empty config keeps default behavior", func(t *testing.T) {
+		configPath := filepath.Join(t.TempDir(), "empty.yaml")
+		if err := os.WriteFile(configPath, nil, 0o600); err != nil {
+			t.Fatalf("write empty config: %v", err)
+		}
+
+		got := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/withtests/...",
+			"--config",
+			configPath,
+			"--json",
+		)
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/withtests/lib/lib.go:3",
+				InternalRefCount:    0,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected scan output with empty config\nwant: %#v\ngot: %#v", want, got)
+		}
+	})
 }
 
 func runCandidateCLI(t *testing.T, args ...string) []candidateReport {
