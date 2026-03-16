@@ -25,8 +25,9 @@ type Options struct {
 }
 
 type candidateState struct {
-	candidate      report.Candidate
-	externalRefPkg map[string]struct{}
+	candidate           report.Candidate
+	externalRefPkg      map[string]struct{}
+	externalRefExamples map[string]struct{}
 }
 
 type fileInfo struct {
@@ -60,15 +61,13 @@ func Run(opts Options) ([]report.Candidate, error) {
 	}
 
 	states := collectDefinitions(pkgs, opts.WorkingDir)
-	collectUses(pkgs, states, opts.TreatTestsAsExternal)
+	collectUses(pkgs, states, opts.WorkingDir, opts.TreatTestsAsExternal)
 
 	results := make([]report.Candidate, 0, len(states))
 	for _, key := range slices.Sorted(maps.Keys(states)) {
 		state := states[key]
 		state.candidate.ExternalRefPkgCount = len(state.externalRefPkg)
-		if state.candidate.ExternalRefPkgCount != 0 {
-			continue
-		}
+		state.candidate.ExternalRefExamples = sortedExamples(state.externalRefExamples)
 		results = append(results, state.candidate)
 	}
 
@@ -79,28 +78,22 @@ func collectDefinitions(pkgs []*packages.Package, workingDir string) map[string]
 	states := map[string]*candidateState{}
 
 	for _, pkg := range pkgs {
-		if shouldSkipDefinitionsPackage(pkg) {
+		if !isDefinitionPackage(pkg) {
 			continue
 		}
 
 		files := buildFileInfo(pkg)
 		for ident, obj := range pkg.TypesInfo.Defs {
-			if !shouldTrackDefinition(obj, ident, pkg.Fset, files) {
+			meta, ok := fileForPos(pkg.Fset, files, ident.Pos())
+			if !ok || !isCandidateObject(obj) {
 				continue
 			}
 
 			key := objectKey(obj)
 			states[key] = &candidateState{
-				candidate: report.Candidate{
-					Symbol:              key,
-					Kind:                objectKind(obj),
-					DefinedIn:           positionString(pkg.Fset, obj.Pos(), workingDir),
-					InternalRefCount:    0,
-					ExternalRefPkgCount: 0,
-					Confidence:          report.ConfidenceHigh,
-					Notes:               []string{},
-				},
-				externalRefPkg: map[string]struct{}{},
+				candidate:           newCandidate(key, pkg, obj, meta, pkg.Fset, workingDir),
+				externalRefPkg:      map[string]struct{}{},
+				externalRefExamples: map[string]struct{}{},
 			}
 		}
 	}
@@ -108,24 +101,56 @@ func collectDefinitions(pkgs []*packages.Package, workingDir string) map[string]
 	return states
 }
 
-func shouldSkipDefinitionsPackage(pkg *packages.Package) bool {
-	return !isDefinitionPackage(pkg) || isExcludedPackage(pkg)
-}
-
-func shouldTrackDefinition(obj types.Object, ident *ast.Ident, fset *token.FileSet, files map[string]fileInfo) bool {
-	if !isCandidateObject(obj) {
-		return false
+func newCandidate(
+	key string,
+	pkg *packages.Package,
+	obj types.Object,
+	meta fileInfo,
+	fset *token.FileSet,
+	workingDir string,
+) report.Candidate {
+	reasons := candidateReasons(pkg, obj, meta)
+	confidence := report.ConfidenceHigh
+	if len(reasons) > 0 {
+		confidence = report.ConfidenceLow
 	}
 
-	meta, ok := fileForPos(fset, files, ident.Pos())
-	if !ok || meta.generated {
-		return false
+	return report.Candidate{
+		Symbol:              key,
+		Kind:                objectKind(obj),
+		DefinedIn:           positionString(fset, obj.Pos(), workingDir),
+		InternalRefCount:    0,
+		ExternalRefPkgCount: 0,
+		ExternalRefExamples: []string{},
+		Confidence:          confidence,
+		Reasons:             reasons,
 	}
-
-	return !meta.isTest || !isGoTestEntrypoint(obj)
 }
 
-func collectUses(pkgs []*packages.Package, states map[string]*candidateState, treatTestsAsExternal bool) {
+func candidateReasons(pkg *packages.Package, obj types.Object, meta fileInfo) []string {
+	reasons := []string{}
+	if pkg.Name == "main" {
+		reasons = append(reasons, "package main")
+	}
+	if packageUnderCmd(pkg.PkgPath) {
+		reasons = append(reasons, "package under cmd")
+	}
+	if meta.generated {
+		reasons = append(reasons, "generated file")
+	}
+	if meta.isTest && isGoTestEntrypoint(obj) {
+		reasons = append(reasons, "go test entrypoint")
+	}
+
+	return reasons
+}
+
+func collectUses(
+	pkgs []*packages.Package,
+	states map[string]*candidateState,
+	workingDir string,
+	treatTestsAsExternal bool,
+) {
 	for _, pkg := range pkgs {
 		if !shouldCollectUsesFromPackage(pkg, treatTestsAsExternal) {
 			continue
@@ -133,7 +158,7 @@ func collectUses(pkgs []*packages.Package, states map[string]*candidateState, tr
 
 		files := buildFileInfo(pkg)
 		for ident, obj := range pkg.TypesInfo.Uses {
-			recordUse(pkg, ident, obj, files, states, treatTestsAsExternal)
+			recordUse(pkg, ident, obj, files, states, workingDir, treatTestsAsExternal)
 		}
 	}
 }
@@ -176,17 +201,12 @@ func shouldCollectUsesFromPackage(pkg *packages.Package, treatTestsAsExternal bo
 	return treatTestsAsExternal && isExternalTestPackage(pkg)
 }
 
-func isExcludedPackage(pkg *packages.Package) bool {
-	if pkg.Name == "main" {
-		return true
-	}
-
-	for _, part := range strings.Split(pkg.PkgPath, "/") {
+func packageUnderCmd(pkgPath string) bool {
+	for part := range strings.SplitSeq(pkgPath, "/") {
 		if part == "cmd" {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -306,6 +326,7 @@ func recordUse(
 	obj types.Object,
 	files map[string]fileInfo,
 	states map[string]*candidateState,
+	workingDir string,
 	treatTestsAsExternal bool,
 ) {
 	key := objectKey(obj)
@@ -332,4 +353,13 @@ func recordUse(
 	}
 
 	state.externalRefPkg[pkg.PkgPath] = struct{}{}
+	state.externalRefExamples[positionString(pkg.Fset, ident.Pos(), workingDir)] = struct{}{}
+}
+
+func sortedExamples(examples map[string]struct{}) []string {
+	if len(examples) == 0 {
+		return []string{}
+	}
+
+	return slices.Sorted(maps.Keys(examples))
 }
