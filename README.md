@@ -1,8 +1,8 @@
 # exportsurf
 
-`exportsurf` is a Go CLI that scans a repository and reports exported package-level identifiers that currently have no detected external package references.
+`exportsurf` is a Go CLI that scans a repository and reports exported package-level identifiers with internal and external reference evidence for API review.
 
-It is designed as a report tool for public API review, not as a linter or `go vet`-style diagnostic. The output is intended to help you decide which exported symbols may be safe to unexport after human review.
+It is designed as a report tool for public API review, not as a linter or `go vet`-style diagnostic. The output is intended to help you review exported symbols with the evidence needed to decide whether they may be safe to unexport.
 
 ## Current Scope
 
@@ -18,10 +18,11 @@ The scanner currently:
 - reports candidates as JSON
 - counts internal references within the defining package
 - counts external package references
-- excludes `package main`
-- excludes packages under `cmd/**`
-- excludes generated files
-- excludes `go test` entrypoints such as `TestXxx`, `BenchmarkXxx`, `FuzzXxx`, and `ExampleXxx`
+- includes `external_ref_examples` and `reasons` for evidence-rich candidate review
+- downgrades confidence for `package main`
+- downgrades confidence for packages under `cmd/**`
+- downgrades confidence for generated files
+- downgrades confidence for `go test` entrypoints such as `TestXxx`, `BenchmarkXxx`, `FuzzXxx`, and `ExampleXxx`
 
 ## Usage
 
@@ -51,20 +52,23 @@ go run . scan ./... --json
 
 ## Output
 
-`scan --json` emits an array of candidate objects.
+`scan --json` emits an array of candidate-report objects.
 
 Example:
 
 ```json
 [
   {
-    "symbol": "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.Candidate",
+    "symbol": "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.UsedExternally",
     "kind": "type",
-    "defined_in": "testdata/fixtures/basic/lib/lib.go:3",
-    "internal_ref_count": 4,
-    "external_ref_pkg_count": 0,
+    "defined_in": "testdata/fixtures/basic/lib/lib.go:5",
+    "internal_ref_count": 0,
+    "external_ref_pkg_count": 1,
+    "external_ref_examples": [
+      "testdata/fixtures/basic/app/app.go:5"
+    ],
     "confidence": "high",
-    "notes": []
+    "reasons": []
   }
 ]
 ```
@@ -76,8 +80,9 @@ Field meanings:
 - `defined_in`: source file and line of the definition
 - `internal_ref_count`: references found inside the defining package
 - `external_ref_pkg_count`: number of external packages that reference the symbol
+- `external_ref_examples`: example source locations for detected external references
 - `confidence`: current confidence label for the candidate
-- `notes`: additional annotations
+- `reasons`: annotations that explain why confidence was downgraded or why the candidate needs extra review
 
 ## Development
 
