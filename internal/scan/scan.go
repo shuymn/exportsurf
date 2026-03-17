@@ -27,9 +27,8 @@ type Options struct {
 }
 
 type candidateState struct {
-	candidate           report.Candidate
-	externalRefPkg      map[string]struct{}
-	externalRefExamples map[string]struct{}
+	candidate      report.Candidate
+	externalRefPkg map[string]struct{}
 }
 
 type fileInfo struct {
@@ -63,13 +62,14 @@ func Run(opts Options) ([]report.Candidate, error) {
 	}
 
 	states := collectDefinitions(pkgs, opts.WorkingDir)
-	collectUses(pkgs, states, opts.WorkingDir, opts.TreatTestsAsExternal)
+	collectUses(pkgs, states, opts.TreatTestsAsExternal)
 
 	results := make([]report.Candidate, 0, len(states))
 	for _, key := range slices.Sorted(maps.Keys(states)) {
 		state := states[key]
-		state.candidate.ExternalRefPkgCount = len(state.externalRefPkg)
-		state.candidate.ExternalRefExamples = sortedExamples(state.externalRefExamples)
+		if len(state.externalRefPkg) > 0 || state.candidate.InternalRefCount == 0 {
+			continue
+		}
 		results = append(results, state.candidate)
 	}
 
@@ -96,9 +96,8 @@ func collectDefinitions(pkgs []*packages.Package, workingDir string) map[string]
 
 			key := objectKey(obj)
 			states[key] = &candidateState{
-				candidate:           newCandidate(key, pkg, obj, meta, pkg.Fset, workingDir),
-				externalRefPkg:      map[string]struct{}{},
-				externalRefExamples: map[string]struct{}{},
+				candidate:      newCandidate(key, pkg, obj, meta, pkg.Fset, workingDir),
+				externalRefPkg: map[string]struct{}{},
 			}
 		}
 	}
@@ -149,7 +148,6 @@ func candidateReasons(pkg *packages.Package, meta fileInfo) []string {
 func collectUses(
 	pkgs []*packages.Package,
 	states map[string]*candidateState,
-	workingDir string,
 	treatTestsAsExternal bool,
 ) {
 	for _, pkg := range pkgs {
@@ -159,7 +157,7 @@ func collectUses(
 
 		files := buildFileInfo(pkg)
 		for ident, obj := range pkg.TypesInfo.Uses {
-			recordUse(pkg, ident, obj, files, states, workingDir, treatTestsAsExternal)
+			recordUse(pkg, ident, obj, files, states, treatTestsAsExternal)
 		}
 	}
 }
@@ -371,7 +369,6 @@ func recordUse(
 	obj types.Object,
 	files map[string]fileInfo,
 	states map[string]*candidateState,
-	workingDir string,
 	treatTestsAsExternal bool,
 ) {
 	key := objectKey(obj)
@@ -398,13 +395,4 @@ func recordUse(
 	}
 
 	state.externalRefPkg[pkg.PkgPath] = struct{}{}
-	state.externalRefExamples[positionString(pkg.Fset, ident.Pos(), workingDir)] = struct{}{}
-}
-
-func sortedExamples(examples map[string]struct{}) []string {
-	if len(examples) == 0 {
-		return []string{}
-	}
-
-	return slices.Sorted(maps.Keys(examples))
 }

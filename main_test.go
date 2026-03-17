@@ -26,16 +26,6 @@ func TestScanJSONContract(t *testing.T) {
 
 		want := []candidateReport{
 			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/cmd/tool.CommandCandidate",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/basic/cmd/tool/main.go:3",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "low",
-				Reasons:             []string{"package main", "package under cmd"},
-			},
-			{
 				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.Candidate",
 				Kind:                "type",
 				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:3",
@@ -66,32 +56,12 @@ func TestScanJSONContract(t *testing.T) {
 				Reasons:             []string{},
 			},
 			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.GeneratedCandidate",
-				Kind:                "const",
-				DefinedIn:           "testdata/fixtures/basic/lib/generated.go:5",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "low",
-				Reasons:             []string{"generated file"},
-			},
-			{
 				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.NewCandidate",
 				Kind:                "func",
 				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:11",
 				InternalRefCount:    1,
 				ExternalRefPkgCount: 0,
 				ExternalRefExamples: []string{},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.UsedExternally",
-				Kind:                "type",
-				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:5",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 1,
-				ExternalRefExamples: []string{"testdata/fixtures/basic/app/app.go:5"},
 				Confidence:          "high",
 				Reasons:             []string{},
 			},
@@ -104,18 +74,7 @@ func TestScanJSONContract(t *testing.T) {
 
 	t.Run("external tests are opt-in", func(t *testing.T) {
 		withoutTests := runCandidateCLI(t, "scan", "./testdata/fixtures/withtests/...", "--json")
-		wantWithoutTests := []candidateReport{
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/withtests/lib/lib.go:3",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
-		}
+		wantWithoutTests := []candidateReport{}
 		if !reflect.DeepEqual(withoutTests, wantWithoutTests) {
 			t.Fatalf("unexpected output without external tests\nwant: %#v\ngot: %#v", wantWithoutTests, withoutTests)
 		}
@@ -127,18 +86,7 @@ func TestScanJSONContract(t *testing.T) {
 			"--json",
 			"--treat-tests-as-external",
 		)
-		wantWithTests := []candidateReport{
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/withtests/lib/lib.go:3",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 1,
-				ExternalRefExamples: []string{"testdata/fixtures/withtests/lib/external_test.go:10"},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
-		}
+		wantWithTests := []candidateReport{}
 		if !reflect.DeepEqual(withTests, wantWithTests) {
 			t.Fatalf(
 				"unexpected output when external tests are treated as external\nwant: %#v\ngot: %#v",
@@ -148,32 +96,10 @@ func TestScanJSONContract(t *testing.T) {
 		}
 	})
 
-	t.Run("go test entrypoints are excluded but helpers remain", func(t *testing.T) {
+	t.Run("go test entrypoints are excluded", func(t *testing.T) {
 		got := runCandidateCLI(t, "scan", "./testdata/fixtures/testrunner/...", "--json")
 
-		want := []candidateReport{
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/testrunner/lib.HelperAPI",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/testrunner/lib/lib_test.go:13",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/testrunner/lib.Placeholder",
-				Kind:                "const",
-				DefinedIn:           "testdata/fixtures/testrunner/lib/lib.go:3",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
-		}
-
+		want := []candidateReport{}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("unexpected output for test entrypoint fixture\nwant: %#v\ngot: %#v", want, got)
 		}
@@ -190,16 +116,6 @@ func TestBaselineDiffContract(t *testing.T) {
 	)
 
 	want := []candidateReport{
-		{
-			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/cmd/tool.CommandCandidate",
-			Kind:                "func",
-			DefinedIn:           "testdata/fixtures/basic/cmd/tool/main.go:3",
-			InternalRefCount:    0,
-			ExternalRefPkgCount: 0,
-			ExternalRefExamples: []string{},
-			Confidence:          "low",
-			Reasons:             []string{"package main", "package under cmd"},
-		},
 		{
 			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedConst",
 			Kind:                "const",
@@ -227,16 +143,6 @@ func TestBaselineDiffContract(t *testing.T) {
 			InternalRefCount:    1,
 			ExternalRefPkgCount: 0,
 			ExternalRefExamples: []string{},
-			Confidence:          "high",
-			Reasons:             []string{},
-		},
-		{
-			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.UsedExternally",
-			Kind:                "type",
-			DefinedIn:           "testdata/fixtures/basic/lib/lib.go:5",
-			InternalRefCount:    0,
-			ExternalRefPkgCount: 1,
-			ExternalRefExamples: []string{"testdata/fixtures/basic/app/app.go:5"},
 			Confidence:          "high",
 			Reasons:             []string{},
 		},
@@ -280,32 +186,12 @@ func TestConfigContract(t *testing.T) {
 				Reasons:             []string{},
 			},
 			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.GeneratedCandidate",
-				Kind:                "const",
-				DefinedIn:           "testdata/fixtures/basic/lib/generated.go:5",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "low",
-				Reasons:             []string{"generated file"},
-			},
-			{
 				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.NewCandidate",
 				Kind:                "func",
 				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:11",
 				InternalRefCount:    1,
 				ExternalRefPkgCount: 0,
 				ExternalRefExamples: []string{},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.UsedExternally",
-				Kind:                "type",
-				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:5",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 1,
-				ExternalRefExamples: []string{"testdata/fixtures/basic/app/app.go:5"},
 				Confidence:          "high",
 				Reasons:             []string{},
 			},
@@ -346,16 +232,6 @@ func TestConfigContract(t *testing.T) {
 				Confidence:          "high",
 				Reasons:             []string{},
 			},
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.UsedExternally",
-				Kind:                "type",
-				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:5",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 1,
-				ExternalRefExamples: []string{"testdata/fixtures/basic/app/app.go:5"},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
 		}
 
 		if !reflect.DeepEqual(diffGot, diffWant) {
@@ -373,19 +249,7 @@ func TestConfigContract(t *testing.T) {
 			"--json",
 		)
 
-		want := []candidateReport{
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/withtests/lib/lib.go:3",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 1,
-				ExternalRefExamples: []string{"testdata/fixtures/withtests/lib/external_test.go:10"},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
-		}
-
+		want := []candidateReport{}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("unexpected scan output when config enables external tests\nwant: %#v\ngot: %#v", want, got)
 		}
@@ -394,19 +258,7 @@ func TestConfigContract(t *testing.T) {
 	t.Run("missing config keeps default behavior", func(t *testing.T) {
 		got := runCandidateCLI(t, "scan", "./testdata/fixtures/withtests/...", "--json")
 
-		want := []candidateReport{
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/withtests/lib/lib.go:3",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
-		}
-
+		want := []candidateReport{}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("unexpected scan output without config\nwant: %#v\ngot: %#v", want, got)
 		}
@@ -427,19 +279,7 @@ func TestConfigContract(t *testing.T) {
 			"--json",
 		)
 
-		want := []candidateReport{
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/withtests/lib.TestOnly",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/withtests/lib/lib.go:3",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "high",
-				Reasons:             []string{},
-			},
-		}
-
+		want := []candidateReport{}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("unexpected scan output with empty config\nwant: %#v\ngot: %#v", want, got)
 		}
