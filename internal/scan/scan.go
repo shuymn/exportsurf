@@ -8,6 +8,7 @@ import (
 	"go/types"
 	"maps"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"unicode"
@@ -25,6 +26,7 @@ type Options struct {
 	ExcludePackages      []string
 	ExcludeSymbols       []string
 	IncludeMethods       bool
+	IncludeFields        bool
 }
 
 type candidateState struct {
@@ -67,9 +69,18 @@ func Run(opts Options) ([]report.Candidate, error) {
 		ifaces = collectInterfaces(pkgs)
 	}
 
+	var fkeys *fieldKeyMap
+	if opts.IncludeFields {
+		fkeys = buildFieldKeyMap(pkgs)
+	}
+
 	states := collectDefinitions(pkgs, opts.WorkingDir, ifaces)
 
-	collectUses(pkgs, states, opts.TreatTestsAsExternal)
+	if opts.IncludeFields {
+		collectFieldDefs(pkgs, opts.WorkingDir, states, fkeys)
+	}
+
+	collectUses(pkgs, states, opts.TreatTestsAsExternal, fkeys)
 
 	results := make([]report.Candidate, 0, len(states))
 	for _, key := range slices.Sorted(maps.Keys(states)) {
@@ -154,21 +165,7 @@ func newCandidate(
 		}
 	}
 
-	confidence := report.ConfidenceHigh
-	if len(reasons) > 0 {
-		confidence = report.ConfidenceLow
-	}
-
-	return report.Candidate{
-		Symbol:              key,
-		Kind:                kind,
-		DefinedIn:           positionString(fset, obj.Pos(), workingDir),
-		InternalRefCount:    0,
-		ExternalRefPkgCount: 0,
-		ExternalRefExamples: []string{},
-		Confidence:          confidence,
-		Reasons:             reasons,
-	}
+	return buildCandidate(key, kind, positionString(fset, obj.Pos(), workingDir), reasons)
 }
 
 func candidateReasons(pkg *packages.Package, meta fileInfo) []string {
@@ -189,6 +186,7 @@ func collectUses(
 	pkgs []*packages.Package,
 	states map[string]*candidateState,
 	treatTestsAsExternal bool,
+	fkeys *fieldKeyMap,
 ) {
 	for _, pkg := range pkgs {
 		if !shouldCollectUsesFromPackage(pkg, treatTestsAsExternal) {
@@ -199,7 +197,49 @@ func collectUses(
 		for ident, obj := range pkg.TypesInfo.Uses {
 			recordUse(pkg, ident, obj, files, states, treatTestsAsExternal)
 		}
+		if fkeys != nil {
+			recordFieldSelections(pkg, files, states, treatTestsAsExternal, fkeys)
+		}
 	}
+}
+
+func recordFieldSelections(
+	pkg *packages.Package,
+	files map[string]fileInfo,
+	states map[string]*candidateState,
+	treatTestsAsExternal bool,
+	fkeys *fieldKeyMap,
+) {
+	for selExpr, sel := range pkg.TypesInfo.Selections {
+		state, fieldVar := resolveFieldSelection(sel, fkeys, states)
+		if state == nil {
+			continue
+		}
+		applyUse(pkg, selExpr.Sel.Pos(), fieldVar, files, state, treatTestsAsExternal)
+	}
+}
+
+func resolveFieldSelection(
+	sel *types.Selection,
+	fkeys *fieldKeyMap,
+	states map[string]*candidateState,
+) (*candidateState, *types.Var) {
+	if sel.Kind() != types.FieldVal {
+		return nil, nil
+	}
+	fieldVar, ok := sel.Obj().(*types.Var)
+	if !ok || !fieldVar.IsField() {
+		return nil, nil
+	}
+	fm, ok := fkeys.resolve(fieldVar)
+	if !ok {
+		return nil, nil
+	}
+	state, ok := states[fm.key]
+	if !ok {
+		return nil, nil
+	}
+	return state, fieldVar
 }
 
 func buildFileInfo(pkg *packages.Package) map[string]fileInfo {
@@ -433,20 +473,29 @@ func recordUse(
 		return
 	}
 
-	meta, ok := fileForPos(pkg.Fset, files, ident.Pos())
+	applyUse(pkg, ident.Pos(), obj, files, state, treatTestsAsExternal)
+}
+
+func applyUse(
+	pkg *packages.Package,
+	pos token.Pos,
+	obj types.Object,
+	files map[string]fileInfo,
+	state *candidateState,
+	treatTestsAsExternal bool,
+) {
+	meta, ok := fileForPos(pkg.Fset, files, pos)
 	if !ok || meta.generated {
 		return
 	}
 	if meta.isTest && (!treatTestsAsExternal || !isExternalTestPackage(pkg)) {
 		return
 	}
-
 	if samePackage(pkg, obj) {
 		state.candidate.InternalRefCount++
-		return
+	} else {
+		state.externalRefPkg[pkg.PkgPath] = struct{}{}
 	}
-
-	state.externalRefPkg[pkg.PkgPath] = struct{}{}
 }
 
 func receiverTypeName(recv *types.Var) (string, bool) {
@@ -527,6 +576,168 @@ func methodCandidateKey(obj types.Object) (string, bool) {
 		return "", false
 	}
 	return fn.Pkg().Path() + "." + recvName + "." + fn.Name(), true
+}
+
+type fieldMeta struct {
+	key      string
+	embedded bool
+	tag      string
+}
+
+type fieldKeyMap struct {
+	byPtr  map[*types.Var]fieldMeta
+	byName map[string][]fieldMeta // "pkgPath\x00fieldName" → metas
+}
+
+func (fk *fieldKeyMap) resolve(v *types.Var) (fieldMeta, bool) {
+	if fk == nil {
+		return fieldMeta{}, false
+	}
+	if fm, ok := fk.byPtr[v]; ok {
+		return fm, true
+	}
+	if v.Pkg() == nil {
+		return fieldMeta{}, false
+	}
+	metas := fk.byName[v.Pkg().Path()+"\x00"+v.Name()]
+	if len(metas) == 1 {
+		return metas[0], true
+	}
+	return fieldMeta{}, false
+}
+
+func buildFieldKeyMap(pkgs []*packages.Package) *fieldKeyMap {
+	fk := &fieldKeyMap{
+		byPtr:  map[*types.Var]fieldMeta{},
+		byName: map[string][]fieldMeta{},
+	}
+	for _, pkg := range pkgs {
+		if !isDefinitionPackage(pkg) {
+			continue
+		}
+		collectStructFields(pkg.Types.Scope(), fk)
+	}
+	return fk
+}
+
+func collectStructFields(scope *types.Scope, fk *fieldKeyMap) {
+	for _, name := range scope.Names() {
+		tn, ok := scope.Lookup(name).(*types.TypeName)
+		if !ok || !tn.Exported() {
+			continue
+		}
+		st, ok := tn.Type().Underlying().(*types.Struct)
+		if !ok {
+			continue
+		}
+		for i := range st.NumFields() {
+			field := st.Field(i)
+			if !field.Exported() {
+				continue
+			}
+			key := tn.Pkg().Path() + "." + tn.Name() + "." + field.Name()
+			fm := fieldMeta{
+				key:      key,
+				embedded: field.Embedded(),
+				tag:      st.Tag(i),
+			}
+			fk.byPtr[field] = fm
+			nameKey := tn.Pkg().Path() + "\x00" + field.Name()
+			fk.byName[nameKey] = append(fk.byName[nameKey], fm)
+		}
+	}
+}
+
+func collectFieldDefs(
+	pkgs []*packages.Package,
+	workingDir string,
+	states map[string]*candidateState,
+	fkeys *fieldKeyMap,
+) {
+	type defPkg struct {
+		pkg   *packages.Package
+		files map[string]fileInfo
+	}
+	defPkgs := map[string]defPkg{}
+	for _, pkg := range pkgs {
+		if isDefinitionPackage(pkg) {
+			defPkgs[pkg.PkgPath] = defPkg{pkg: pkg, files: buildFileInfo(pkg)}
+		}
+	}
+
+	for field, fm := range fkeys.byPtr {
+		if _, exists := states[fm.key]; exists {
+			continue
+		}
+		if field.Pkg() == nil {
+			continue
+		}
+		dp, ok := defPkgs[field.Pkg().Path()]
+		if !ok {
+			continue
+		}
+		meta, ok := fileForPos(dp.pkg.Fset, dp.files, field.Pos())
+		if !ok {
+			continue
+		}
+		states[fm.key] = &candidateState{
+			candidate:      newFieldCandidate(fm, dp.pkg, field, meta, dp.pkg.Fset, workingDir),
+			externalRefPkg: map[string]struct{}{},
+		}
+	}
+}
+
+func newFieldCandidate(
+	fm fieldMeta,
+	pkg *packages.Package,
+	field *types.Var,
+	meta fileInfo,
+	fset *token.FileSet,
+	workingDir string,
+) report.Candidate {
+	reasons := candidateReasons(pkg, meta)
+	reasons = append(reasons, fieldReasons(fm)...)
+
+	return buildCandidate(fm.key, "field", positionString(fset, field.Pos(), workingDir), reasons)
+}
+
+func buildCandidate(symbol, kind, definedIn string, reasons []string) report.Candidate {
+	confidence := report.ConfidenceHigh
+	if len(reasons) > 0 {
+		confidence = report.ConfidenceLow
+	}
+
+	return report.Candidate{
+		Symbol:              symbol,
+		Kind:                kind,
+		DefinedIn:           definedIn,
+		InternalRefCount:    0,
+		ExternalRefPkgCount: 0,
+		ExternalRefExamples: []string{},
+		Confidence:          confidence,
+		Reasons:             reasons,
+	}
+}
+
+func fieldReasons(fm fieldMeta) []string {
+	var reasons []string
+	if fm.embedded {
+		reasons = append(reasons, "embedded field")
+	}
+	if hasSerializationTag(fm.tag) {
+		reasons = append(reasons, "has serialization tag")
+	}
+	return reasons
+}
+
+func hasSerializationTag(tag string) bool {
+	st := reflect.StructTag(tag)
+	for _, key := range []string{"json", "xml", "yaml"} {
+		if _, ok := st.Lookup(key); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func methodInterfaceReasons(

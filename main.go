@@ -60,6 +60,7 @@ func runScan(args []string, stdout io.Writer) error {
 		ExcludePackages:      fileCfg.ExcludePackages,
 		ExcludeSymbols:       fileCfg.ExcludeSymbols,
 		IncludeMethods:       fileCfg.IncludeMethods,
+		IncludeFields:        fileCfg.IncludeFields,
 	})
 	if err != nil {
 		return err

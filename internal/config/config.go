@@ -15,6 +15,7 @@ type File struct {
 	ExcludeSymbols       []string `yaml:"exclude_symbols"`
 	TreatTestsAsExternal bool     `yaml:"treat_tests_as_external"`
 	IncludeMethods       bool     `yaml:"include_methods"`
+	IncludeFields        bool     `yaml:"include_fields"`
 }
 
 func Load(path string) (File, error) {

@@ -415,6 +415,88 @@ func TestRunMethodScanning(t *testing.T) {
 	})
 }
 
+func TestRunFieldScanning(t *testing.T) {
+	t.Run("fields not reported by default", func(t *testing.T) {
+		got := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/fields/...",
+			"--json",
+		)
+
+		want := []candidateReport{}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf(
+				"expected no candidates without include_fields\nwant: %#v\ngot: %#v",
+				want,
+				got,
+			)
+		}
+	})
+
+	t.Run("fields reported with include_fields config", func(t *testing.T) {
+		got := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/fields/...",
+			"--config",
+			"./testdata/config/fields.yaml",
+			"--json",
+		)
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/fields/lib.GenericStruct.Value",
+				Kind:                "field",
+				DefinedIn:           "testdata/fixtures/fields/lib/lib.go:13",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/fields/lib.MyStruct.EmbeddedType",
+				Kind:                "field",
+				DefinedIn:           "testdata/fixtures/fields/lib/lib.go:6",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "low",
+				Reasons:             []string{"embedded field"},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/fields/lib.MyStruct.InternalField",
+				Kind:                "field",
+				DefinedIn:           "testdata/fixtures/fields/lib/lib.go:4",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/fields/lib.MyStruct.TaggedField",
+				Kind:                "field",
+				DefinedIn:           "testdata/fixtures/fields/lib/lib.go:7",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "low",
+				Reasons:             []string{"has serialization tag"},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf(
+				"unexpected field scanning output\nwant: %#v\ngot: %#v",
+				want,
+				got,
+			)
+		}
+	})
+}
+
 func TestRunDiffRemoved(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{
