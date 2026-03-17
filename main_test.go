@@ -98,6 +98,15 @@ func TestScanJSONContract(t *testing.T) {
 	})
 }
 
+func TestScanJSONContractCurrentModuleHasNoCandidates(t *testing.T) {
+	got := runCandidateCLI(t, "--json")
+
+	want := []candidateReport{}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected scan output for current module\nwant: %#v\ngot: %#v", want, got)
+	}
+}
+
 func TestRunTextOutput(t *testing.T) {
 	t.Run("default output is text", func(t *testing.T) {
 		var stdout bytes.Buffer
