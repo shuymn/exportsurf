@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,8 +13,13 @@ import (
 	"github.com/shuymn/exportsurf/pkg/report"
 )
 
+var errFindingsFound = errors.New("candidates found")
+
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
+		if errors.Is(err, errFindingsFound) {
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -21,14 +27,12 @@ func main() {
 
 func run(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return usageError("usage: exportsurf <scan|diff> ...")
+		return usageError("usage: exportsurf scan ...")
 	}
 
 	switch args[0] {
 	case "scan":
 		return runScan(args[1:], stdout)
-	case "diff":
-		return runDiff(args[1:], stdout)
 	default:
 		return usageError("unknown command: %s", args[0])
 	}
@@ -60,61 +64,61 @@ func runScan(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	return report.WriteJSON(stdout, candidates)
+	candidates, err = filterBaseline(cfg.baselinePath, candidates)
+	if err != nil {
+		return err
+	}
+
+	if err := writeOutput(stdout, candidates, cfg.jsonOutput); err != nil {
+		return err
+	}
+
+	if cfg.failOnFindings && len(candidates) > 0 {
+		return errFindingsFound
+	}
+
+	return nil
 }
 
-func runDiff(args []string, stdout io.Writer) error {
-	cfg, err := parseDiffArgs(args)
-	if err != nil {
-		return err
-	}
-	fileCfg, err := loadConfig(cfg.configPath)
-	if err != nil {
-		return err
+func filterBaseline(
+	path string,
+	candidates []report.Candidate,
+) ([]report.Candidate, error) {
+	if path == "" {
+		return candidates, nil
 	}
 
-	accepted, err := baseline.Load(cfg.baselinePath)
+	accepted, err := baseline.Load(path)
 	if err != nil {
-		return err
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("get working directory: %w", err)
-	}
-
-	candidates, err := scan.Run(scan.Options{
-		Patterns:             cfg.patterns,
-		WorkingDir:           cwd,
-		TreatTestsAsExternal: cfg.treatTestsAsExternal || fileCfg.TreatTestsAsExternal,
-		ExcludePackages:      fileCfg.ExcludePackages,
-		ExcludeSymbols:       fileCfg.ExcludeSymbols,
-	})
-	if err != nil {
-		return err
+		return nil, err
 	}
 
 	filtered := make([]report.Candidate, 0, len(candidates))
-	for _, candidate := range candidates {
-		if _, ok := accepted[candidate.Symbol]; ok {
-			continue
+	for _, c := range candidates {
+		if _, ok := accepted[c.Symbol]; !ok {
+			filtered = append(filtered, c)
 		}
-		filtered = append(filtered, candidate)
 	}
+	return filtered, nil
+}
 
-	return report.WriteJSON(stdout, filtered)
+func writeOutput(
+	w io.Writer,
+	candidates []report.Candidate,
+	jsonOutput bool,
+) error {
+	if jsonOutput {
+		return report.WriteJSON(w, candidates)
+	}
+	return report.WriteText(w, candidates)
 }
 
 type scanConfig struct {
 	patterns             []string
 	configPath           string
-	treatTestsAsExternal bool
-}
-
-type diffConfig struct {
-	patterns             []string
 	baselinePath         string
-	configPath           string
+	jsonOutput           bool
+	failOnFindings       bool
 	treatTestsAsExternal bool
 }
 
@@ -124,7 +128,6 @@ func parseScanArgs(args []string) (scanConfig, error) {
 	}
 
 	var patterns []string
-	var jsonOutput bool
 	var err error
 
 	for idx := 0; idx < len(args); idx++ {
@@ -132,12 +135,19 @@ func parseScanArgs(args []string) (scanConfig, error) {
 
 		switch {
 		case arg == "--json":
-			jsonOutput = true
+			cfg.jsonOutput = true
+		case arg == "--baseline":
+			cfg.baselinePath, idx, err = parseRequiredPathFlag(args, idx, "--baseline", "baseline")
+			if err != nil {
+				return scanConfig{}, err
+			}
 		case arg == "--config":
 			cfg.configPath, idx, err = parseRequiredPathFlag(args, idx, "--config", "config")
 			if err != nil {
 				return scanConfig{}, err
 			}
+		case arg == "--fail-on-findings":
+			cfg.failOnFindings = true
 		case arg == "--treat-tests-as-external":
 			cfg.treatTestsAsExternal = true
 		case arg == "":
@@ -147,54 +157,6 @@ func parseScanArgs(args []string) (scanConfig, error) {
 		default:
 			patterns = append(patterns, arg)
 		}
-	}
-
-	if !jsonOutput {
-		return scanConfig{}, usageError("--json is required")
-	}
-
-	if len(patterns) > 0 {
-		cfg.patterns = slices.Clone(patterns)
-	}
-
-	return cfg, nil
-}
-
-func parseDiffArgs(args []string) (diffConfig, error) {
-	cfg := diffConfig{
-		patterns: []string{"./..."},
-	}
-
-	var patterns []string
-	var err error
-
-	for idx := 0; idx < len(args); idx++ {
-		arg := args[idx]
-
-		switch {
-		case arg == "--baseline":
-			cfg.baselinePath, idx, err = parseRequiredPathFlag(args, idx, "--baseline", "baseline")
-			if err != nil {
-				return diffConfig{}, err
-			}
-		case arg == "--config":
-			cfg.configPath, idx, err = parseRequiredPathFlag(args, idx, "--config", "config")
-			if err != nil {
-				return diffConfig{}, err
-			}
-		case arg == "--treat-tests-as-external":
-			cfg.treatTestsAsExternal = true
-		case arg == "":
-			return diffConfig{}, usageError("empty argument is not allowed")
-		case arg[0] == '-':
-			return diffConfig{}, usageError("unknown flag: %s", arg)
-		default:
-			patterns = append(patterns, arg)
-		}
-	}
-
-	if cfg.baselinePath == "" {
-		return diffConfig{}, usageError("--baseline is required")
 	}
 
 	if len(patterns) > 0 {

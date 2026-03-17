@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -106,55 +107,110 @@ func TestScanJSONContract(t *testing.T) {
 	})
 }
 
-func TestBaselineDiffContract(t *testing.T) {
-	got := runCandidateCLI(
-		t,
-		"diff",
-		"./testdata/fixtures/basic/...",
-		"--baseline",
-		"./testdata/baseline/basic.json",
-	)
+func TestRunTextOutput(t *testing.T) {
+	t.Run("default output is text", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := run([]string{"scan", "./testdata/fixtures/basic/..."}, &stdout)
+		if err != nil {
+			t.Fatalf("run failed: %v", err)
+		}
 
-	want := []candidateReport{
-		{
-			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedConst",
-			Kind:                "const",
-			DefinedIn:           "testdata/fixtures/basic/lib/lib.go:7",
-			InternalRefCount:    1,
-			ExternalRefPkgCount: 0,
-			ExternalRefExamples: []string{},
-			Confidence:          "high",
-			Reasons:             []string{},
-		},
-		{
-			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedVar",
-			Kind:                "var",
-			DefinedIn:           "testdata/fixtures/basic/lib/lib.go:9",
-			InternalRefCount:    1,
-			ExternalRefPkgCount: 0,
-			ExternalRefExamples: []string{},
-			Confidence:          "high",
-			Reasons:             []string{},
-		},
-		{
-			Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.NewCandidate",
-			Kind:                "func",
-			DefinedIn:           "testdata/fixtures/basic/lib/lib.go:11",
-			InternalRefCount:    1,
-			ExternalRefPkgCount: 0,
-			ExternalRefExamples: []string{},
-			Confidence:          "high",
-			Reasons:             []string{},
-		},
-	}
+		want := "testdata/fixtures/basic/lib/lib.go:3: Candidate (type)\n" +
+			"testdata/fixtures/basic/lib/lib.go:7: ExportedConst (const)\n" +
+			"testdata/fixtures/basic/lib/lib.go:9: ExportedVar (var)\n" +
+			"testdata/fixtures/basic/lib/lib.go:11: NewCandidate (func)\n"
 
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected diff output\nwant: %#v\ngot: %#v", want, got)
-	}
+		if stdout.String() != want {
+			t.Fatalf("unexpected text output\nwant:\n%s\ngot:\n%s", want, stdout.String())
+		}
+	})
+
+	t.Run("text output with baseline", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := run([]string{
+			"scan",
+			"./testdata/fixtures/basic/...",
+			"--baseline",
+			"./testdata/baseline/basic.json",
+		}, &stdout)
+		if err != nil {
+			t.Fatalf("run failed: %v", err)
+		}
+
+		want := "testdata/fixtures/basic/lib/lib.go:7: ExportedConst (const)\n" +
+			"testdata/fixtures/basic/lib/lib.go:9: ExportedVar (var)\n" +
+			"testdata/fixtures/basic/lib/lib.go:11: NewCandidate (func)\n"
+
+		if stdout.String() != want {
+			t.Fatalf("unexpected text output\nwant:\n%s\ngot:\n%s", want, stdout.String())
+		}
+	})
+
+	t.Run("no candidates produces empty output", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := run([]string{"scan", "./testdata/fixtures/withtests/..."}, &stdout)
+		if err != nil {
+			t.Fatalf("run failed: %v", err)
+		}
+
+		if stdout.String() != "" {
+			t.Fatalf("expected empty output, got:\n%s", stdout.String())
+		}
+	})
+}
+
+func TestRunBaselineContract(t *testing.T) {
+	t.Run("scan --baseline --json filters candidates", func(t *testing.T) {
+		got := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/basic/...",
+			"--baseline",
+			"./testdata/baseline/basic.json",
+			"--json",
+		)
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedConst",
+				Kind:                "const",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:7",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedVar",
+				Kind:                "var",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:9",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.NewCandidate",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/basic/lib/lib.go:11",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected scan --baseline --json output\nwant: %#v\ngot: %#v", want, got)
+		}
+	})
 }
 
 func TestConfigContract(t *testing.T) {
-	t.Run("scan and diff respect config-driven excludes", func(t *testing.T) {
+	t.Run("scan and scan --baseline respect config-driven excludes", func(t *testing.T) {
 		scanGot := runCandidateCLI(
 			t,
 			"scan",
@@ -201,17 +257,18 @@ func TestConfigContract(t *testing.T) {
 			t.Fatalf("unexpected scan output with config\nwant: %#v\ngot: %#v", scanWant, scanGot)
 		}
 
-		diffGot := runCandidateCLI(
+		baselineGot := runCandidateCLI(
 			t,
-			"diff",
+			"scan",
 			"./testdata/fixtures/basic/...",
 			"--config",
 			"./testdata/config/basic.yaml",
 			"--baseline",
 			"./testdata/baseline/basic.json",
+			"--json",
 		)
 
-		diffWant := []candidateReport{
+		baselineWant := []candidateReport{
 			{
 				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedVar",
 				Kind:                "var",
@@ -234,8 +291,8 @@ func TestConfigContract(t *testing.T) {
 			},
 		}
 
-		if !reflect.DeepEqual(diffGot, diffWant) {
-			t.Fatalf("unexpected diff output with config\nwant: %#v\ngot: %#v", diffWant, diffGot)
+		if !reflect.DeepEqual(baselineGot, baselineWant) {
+			t.Fatalf("unexpected baseline output with config\nwant: %#v\ngot: %#v", baselineWant, baselineGot)
 		}
 	})
 
@@ -282,6 +339,65 @@ func TestConfigContract(t *testing.T) {
 		want := []candidateReport{}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("unexpected scan output with empty config\nwant: %#v\ngot: %#v", want, got)
+		}
+	})
+}
+
+func TestRunDiffRemoved(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{
+		"diff",
+		"--baseline", "./testdata/baseline/basic.json",
+		"./testdata/fixtures/basic/...",
+	}, &stdout)
+	if err == nil {
+		t.Fatal("expected error for diff subcommand, got nil")
+	}
+}
+
+func TestRunFailOnFindings(t *testing.T) {
+	t.Run("findings with flag causes error", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := run([]string{"scan", "./testdata/fixtures/basic/...", "--json", "--fail-on-findings"}, &stdout)
+		if !errors.Is(err, errFindingsFound) {
+			t.Fatalf("expected errFindingsFound, got: %v", err)
+		}
+
+		// Output should still be written
+		var got []candidateReport
+		if jsonErr := json.Unmarshal(stdout.Bytes(), &got); jsonErr != nil {
+			t.Fatalf("failed to decode JSON output: %v\n%s", jsonErr, stdout.Bytes())
+		}
+		if len(got) == 0 {
+			t.Fatal("expected candidates in output")
+		}
+	})
+
+	t.Run("no findings with flag exits normally", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := run([]string{"scan", "./testdata/fixtures/withtests/...", "--json", "--fail-on-findings"}, &stdout)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("findings without flag exits normally", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := run([]string{"scan", "./testdata/fixtures/basic/...", "--json"}, &stdout)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("text output with fail-on-findings", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := run([]string{"scan", "./testdata/fixtures/basic/...", "--fail-on-findings"}, &stdout)
+		if !errors.Is(err, errFindingsFound) {
+			t.Fatalf("expected errFindingsFound, got: %v", err)
+		}
+
+		if stdout.String() == "" {
+			t.Fatal("expected text output before error")
 		}
 	})
 }
