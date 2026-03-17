@@ -27,24 +27,7 @@
 
 # Theme Backlog
 
-- [ ] Theme: Scan CLI unification — diff 削除・--baseline 統合・テキストデフォルト出力
-  - Outcome: `scan` が唯一のサブコマンドになり、デフォルトで go vet 風テキスト出力、`--json` で JSON、`--baseline` で baseline フィルタを行う。exit code はフラグで制御可能
-  - Goal: CLI を `scan` 一本に統合し、`--json` を必須から任意に変更、`diff` 機能を `scan --baseline` に吸収。README に build tags の制約を記載
-  - Must Not Break: `scan --json` の JSON 出力内容（Candidate フィールド・値）、`--config` / `--treat-tests-as-external` の動作
-  - Non-goals: SARIF 出力、新しい Candidate フィールド追加
-  - Acceptance (EARS):
-    - When `scan` is run without `--json`, the tool shall output candidates in `defined_in: message` format to stdout
-    - When `scan --json` is run, the tool shall output JSON identical to current behavior
-    - When `scan --baseline <path>` is run, the tool shall exclude symbols present in baseline from output
-    - When `scan --baseline <path> --json` is run, the tool shall output filtered JSON
-    - If the `diff` subcommand is used, the tool shall return a usage error
-    - When `--fail-on-findings` is set and candidates are found, the tool shall exit with non-zero status
-    - When `--fail-on-findings` is not set, the tool shall always exit 0 (unless error)
-  - Evidence: `run=task check; oracle=test assertions; visibility=independent; controls=[agent,context]; missing=[]; companion=none`
-  - Gates: `static`, `integration`
-  - Executable doc: `go test -run TestRun ./...` — 既存 diff テストを scan --baseline テストに変換、テキスト出力テストを追加、exit code テストを追加
-  - Why not split vertically further?: テキスト出力追加と diff→scan 統合は同一 CLI public contract の変更。`--json` 必須解除は `--baseline` 統合の前提
-  - Escalate if: テキスト出力フォーマットが go vet 互換ツールとの pipe で問題を起こす場合
+- [x] Theme: Scan CLI unification — diff 削除・--baseline 統合・テキストデフォルト出力
 
 - [ ] Theme: Method scanning — exported method を候補対象に追加
   - Outcome: `include_methods: true` 設定時、exported method も候補として報告される。interface satisfaction が必要な method は low confidence で報告される
