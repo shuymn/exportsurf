@@ -24,6 +24,7 @@ type Options struct {
 	TreatTestsAsExternal bool
 	ExcludePackages      []string
 	ExcludeSymbols       []string
+	IncludeMethods       bool
 }
 
 type candidateState struct {
@@ -61,7 +62,13 @@ func Run(opts Options) ([]report.Candidate, error) {
 		return nil, errors.New("package loading failed")
 	}
 
-	states := collectDefinitions(pkgs, opts.WorkingDir)
+	var ifaces []namedInterface
+	if opts.IncludeMethods {
+		ifaces = collectInterfaces(pkgs)
+	}
+
+	states := collectDefinitions(pkgs, opts.WorkingDir, ifaces)
+
 	collectUses(pkgs, states, opts.TreatTestsAsExternal)
 
 	results := make([]report.Candidate, 0, len(states))
@@ -76,7 +83,11 @@ func Run(opts Options) ([]report.Candidate, error) {
 	return filterCandidates(results, opts.ExcludePackages, opts.ExcludeSymbols), nil
 }
 
-func collectDefinitions(pkgs []*packages.Package, workingDir string) map[string]*candidateState {
+func collectDefinitions(
+	pkgs []*packages.Package,
+	workingDir string,
+	ifaces []namedInterface,
+) map[string]*candidateState {
 	states := map[string]*candidateState{}
 
 	for _, pkg := range pkgs {
@@ -87,22 +98,38 @@ func collectDefinitions(pkgs []*packages.Package, workingDir string) map[string]
 		files := buildFileInfo(pkg)
 		for ident, obj := range pkg.TypesInfo.Defs {
 			meta, ok := fileForPos(pkg.Fset, files, ident.Pos())
-			if !ok || !isCandidateObject(obj) {
+			if !ok {
 				continue
 			}
-			if meta.isTest && isGoTestEntrypoint(obj) {
-				continue
-			}
-
-			key := objectKey(obj)
-			states[key] = &candidateState{
-				candidate:      newCandidate(key, pkg, obj, meta, pkg.Fset, workingDir),
-				externalRefPkg: map[string]struct{}{},
+			if key, ifcs, ok := classifyDef(obj, meta, ifaces); ok {
+				states[key] = &candidateState{
+					candidate:      newCandidate(key, pkg, obj, meta, pkg.Fset, workingDir, ifcs),
+					externalRefPkg: map[string]struct{}{},
+				}
 			}
 		}
 	}
 
 	return states
+}
+
+func classifyDef(
+	obj types.Object,
+	meta fileInfo,
+	ifaces []namedInterface,
+) (string, []namedInterface, bool) {
+	if isCandidateObject(obj) {
+		if meta.isTest && isGoTestEntrypoint(obj) {
+			return "", nil, false
+		}
+		return objectKey(obj), nil, true
+	}
+	if len(ifaces) > 0 {
+		if key, ok := methodCandidateKey(obj); ok {
+			return key, ifaces, true
+		}
+	}
+	return "", nil, false
 }
 
 func newCandidate(
@@ -112,8 +139,21 @@ func newCandidate(
 	meta fileInfo,
 	fset *token.FileSet,
 	workingDir string,
+	ifaces []namedInterface,
 ) report.Candidate {
+	kind := objectKind(obj)
 	reasons := candidateReasons(pkg, meta)
+
+	if fn, ok := obj.(*types.Func); ok {
+		if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
+			kind = "method"
+			reasons = append(
+				reasons,
+				methodInterfaceReasons(sig.Recv(), fn.Name(), ifaces)...,
+			)
+		}
+	}
+
 	confidence := report.ConfidenceHigh
 	if len(reasons) > 0 {
 		confidence = report.ConfidenceLow
@@ -121,7 +161,7 @@ func newCandidate(
 
 	return report.Candidate{
 		Symbol:              key,
-		Kind:                objectKind(obj),
+		Kind:                kind,
 		DefinedIn:           positionString(fset, obj.Pos(), workingDir),
 		InternalRefCount:    0,
 		ExternalRefPkgCount: 0,
@@ -248,6 +288,14 @@ func objectKey(obj types.Object) string {
 		return ""
 	}
 
+	if fn, ok := obj.(*types.Func); ok {
+		if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
+			if recvName, exported := receiverTypeName(sig.Recv()); exported {
+				return fn.Pkg().Path() + "." + recvName + "." + fn.Name()
+			}
+		}
+	}
+
 	return obj.Pkg().Path() + "." + obj.Name()
 }
 
@@ -296,12 +344,16 @@ func filterCandidates(
 }
 
 func candidatePackagePath(symbol string) string {
-	idx := strings.LastIndex(symbol, ".")
-	if idx == -1 {
+	// Symbol format: "pkg/path.Name" or "pkg/path.Type.Method"
+	// Find the first dot that separates the package path from the symbol name.
+	// Package paths use "/" separators, so the first "." after the last "/" is
+	// the boundary.
+	lastSlash := strings.LastIndex(symbol, "/")
+	dotIdx := strings.Index(symbol[lastSlash+1:], ".")
+	if dotIdx == -1 {
 		return ""
 	}
-
-	return symbol[:idx]
+	return symbol[:lastSlash+1+dotIdx]
 }
 
 func samePackage(pkg *packages.Package, obj types.Object) bool {
@@ -395,4 +447,117 @@ func recordUse(
 	}
 
 	state.externalRefPkg[pkg.PkgPath] = struct{}{}
+}
+
+func receiverTypeName(recv *types.Var) (string, bool) {
+	t := recv.Type()
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	named, ok := t.(*types.Named)
+	if !ok {
+		return "", false
+	}
+	return named.Obj().Name(), named.Obj().Exported()
+}
+
+type namedInterface struct {
+	name  string
+	iface *types.Interface
+}
+
+func collectInterfaces(pkgs []*packages.Package) []namedInterface {
+	seen := map[*types.Package]bool{}
+	var result []namedInterface
+
+	var visit func(tp *types.Package)
+	visit = func(tp *types.Package) {
+		if tp == nil || seen[tp] {
+			return
+		}
+		seen[tp] = true
+
+		result = append(result, interfacesInScope(tp)...)
+		for _, imp := range tp.Imports() {
+			visit(imp)
+		}
+	}
+
+	for _, pkg := range pkgs {
+		if pkg.Types != nil {
+			visit(pkg.Types)
+		}
+	}
+
+	return result
+}
+
+func interfacesInScope(tp *types.Package) []namedInterface {
+	var result []namedInterface
+	scope := tp.Scope()
+	for _, name := range scope.Names() {
+		obj := scope.Lookup(name)
+		tn, ok := obj.(*types.TypeName)
+		if !ok {
+			continue
+		}
+		iface, ok := tn.Type().Underlying().(*types.Interface)
+		if !ok {
+			continue
+		}
+		result = append(result, namedInterface{
+			name:  tp.Path() + "." + tn.Name(),
+			iface: iface,
+		})
+	}
+	return result
+}
+
+func methodCandidateKey(obj types.Object) (string, bool) {
+	fn, ok := obj.(*types.Func)
+	if !ok || !fn.Exported() || fn.Pkg() == nil {
+		return "", false
+	}
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok || sig.Recv() == nil {
+		return "", false
+	}
+	recvName, exported := receiverTypeName(sig.Recv())
+	if !exported {
+		return "", false
+	}
+	return fn.Pkg().Path() + "." + recvName + "." + fn.Name(), true
+}
+
+func methodInterfaceReasons(
+	recv *types.Var,
+	methodName string,
+	ifaces []namedInterface,
+) []string {
+	t := recv.Type()
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	named, ok := t.(*types.Named)
+	if !ok {
+		return nil
+	}
+
+	var reasons []string
+	ptrT := types.NewPointer(named)
+
+	for _, ni := range ifaces {
+		if !types.Implements(named, ni.iface) &&
+			!types.Implements(ptrT, ni.iface) {
+			continue
+		}
+		for m := range ni.iface.Methods() {
+			if m.Name() == methodName {
+				reasons = append(reasons, "satisfies interface "+ni.name)
+				break
+			}
+		}
+	}
+
+	return reasons
 }

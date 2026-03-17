@@ -59,6 +59,7 @@ func runScan(args []string, stdout io.Writer) error {
 		TreatTestsAsExternal: cfg.treatTestsAsExternal || fileCfg.TreatTestsAsExternal,
 		ExcludePackages:      fileCfg.ExcludePackages,
 		ExcludeSymbols:       fileCfg.ExcludeSymbols,
+		IncludeMethods:       fileCfg.IncludeMethods,
 	})
 	if err != nil {
 		return err

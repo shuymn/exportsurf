@@ -343,6 +343,78 @@ func TestConfigContract(t *testing.T) {
 	})
 }
 
+func TestRunMethodScanning(t *testing.T) {
+	t.Run("methods not reported by default", func(t *testing.T) {
+		got := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/methods/...",
+			"--json",
+		)
+
+		want := []candidateReport{}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf(
+				"expected no candidates without include_methods\nwant: %#v\ngot: %#v",
+				want,
+				got,
+			)
+		}
+	})
+
+	t.Run("methods reported with include_methods config", func(t *testing.T) {
+		got := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/methods/...",
+			"--config",
+			"./testdata/config/methods.yaml",
+			"--json",
+		)
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/methods/lib.Container.Get",
+				Kind:                "method",
+				DefinedIn:           "testdata/fixtures/methods/lib/lib.go:23",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/methods/lib.MyType.InternalOnly",
+				Kind:                "method",
+				DefinedIn:           "testdata/fixtures/methods/lib/lib.go:7",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/methods/lib.MyType.Write",
+				Kind:                "method",
+				DefinedIn:           "testdata/fixtures/methods/lib/lib.go:11",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "low",
+				Reasons:             []string{"satisfies interface io.Writer"},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf(
+				"unexpected method scanning output\nwant: %#v\ngot: %#v",
+				want,
+				got,
+			)
+		}
+	})
+}
+
 func TestRunDiffRemoved(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{
