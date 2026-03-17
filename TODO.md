@@ -29,24 +29,7 @@
 
 - [x] Theme: Scan CLI unification — diff 削除・--baseline 統合・テキストデフォルト出力
 
-- [ ] Theme: Method scanning — exported method を候補対象に追加
-  - Outcome: `include_methods: true` 設定時、exported method も候補として報告される。interface satisfaction が必要な method は low confidence で報告される
-  - Goal: scan が exported method（receiver 付き exported func）を候補に含め、interface satisfaction を `types.Implements` で検出して confidence に反映
-  - Must Not Break: 既存の package-level symbol スキャン結果、`include_methods` 未設定時のデフォルト動作
-  - Non-goals: struct field scanning
-  - Acceptance (EARS):
-    - When `include_methods: true` is set in config, the tool shall report exported methods with internal-only references as candidates with kind "method"
-    - When `include_methods` is not set or false, the tool shall not report methods (default)
-    - When a method is reported, the symbol field shall include the receiver type (e.g., `pkg.Type.Method`)
-    - When a method is required to satisfy an interface (checked via `types.Implements` against all interfaces in loaded packages), the candidate shall have low confidence with reason `"satisfies interface <pkg.Interface>"`
-    - When a method satisfies multiple interfaces, all shall be listed as separate reasons
-    - When a method's receiver type is unexported, the method shall not be reported as a candidate
-    - When a method is on a generic type, the symbol shall use the base type name without type parameters (e.g., `pkg.Container.Get`)
-  - Evidence: `run=task check; oracle=test assertions; visibility=independent; controls=[agent,context]; missing=[]; companion=none`
-  - Gates: `static`, `integration`
-  - Executable doc: integration test — fixture with exported methods: some externally referenced, some internal-only, some satisfying interfaces (e.g., `io.Writer`), some on unexported types, some on generic types; verify filtering and confidence
-  - Why not split vertically further?: method の定義収集・参照追跡・interface satisfaction 検出は同じ型情報に依存し不可分
-  - Escalate if: interface 列挙のパフォーマンスが大規模コードベースで問題になる場合
+- [x] Theme: Method scanning — exported method を候補対象に追加
 
 - [ ] Theme: Struct field scanning — exported struct field を候補対象に追加
   - Outcome: `include_fields: true` 設定時、exported struct field も候補として報告される。embedded field・serialization tag 付き field は low confidence で報告される
