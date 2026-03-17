@@ -1,7 +1,7 @@
 [
   {
     "symbol": "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.Candidate",
-    "defined_in": "stale/location.go:999",
+    "src": "stale/location.go:999",
     "confidence": "low"
   },
   {

@@ -754,7 +754,7 @@ func newFieldCandidate(
 	return buildCandidate(fm.key, "field", positionString(fset, field.Pos(), workingDir), reasons)
 }
 
-func buildCandidate(symbol, kind, definedIn string, reasons []string) report.Candidate {
+func buildCandidate(symbol, kind, src string, reasons []string) report.Candidate {
 	confidence := report.ConfidenceHigh
 	if len(reasons) > 0 {
 		confidence = report.ConfidenceLow
@@ -763,7 +763,7 @@ func buildCandidate(symbol, kind, definedIn string, reasons []string) report.Can
 	return report.Candidate{
 		Symbol:           symbol,
 		Kind:             kind,
-		DefinedIn:        definedIn,
+		Src:              src,
 		InternalRefCount: 0,
 		Confidence:       confidence,
 		Reasons:          reasons,

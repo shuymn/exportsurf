@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
+
+	"github.com/alecthomas/kong"
 
 	"github.com/shuymn/exportsurf/internal/baseline"
 	"github.com/shuymn/exportsurf/internal/config"
@@ -14,6 +15,16 @@ import (
 )
 
 var errFindingsFound = errors.New("candidates found")
+
+type cli struct {
+	Patterns             []string `arg:"" optional:"" help:"Package patterns to scan (default: ./...)." name:"patterns"`
+	JSON                 bool     `name:"json" help:"Output JSON array of candidates." xor:"format"`
+	SARIF                bool     `name:"sarif" help:"Output SARIF v2.1.0 format." xor:"format"`
+	Baseline             string   `name:"baseline" help:"Path to baseline JSON file to filter accepted symbols." placeholder:"PATH"`
+	Config               string   `name:"config" help:"Path to config YAML file." placeholder:"PATH"`
+	FailOnFindings       bool     `name:"fail-on-findings" help:"Exit with code 1 if candidates are found."`
+	TreatTestsAsExternal bool     `name:"treat-tests-as-external" help:"Count _test.go references as external uses."`
+}
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
@@ -26,24 +37,38 @@ func main() {
 }
 
 func run(args []string, stdout io.Writer) error {
-	if len(args) == 0 {
-		return usageError("usage: exportsurf scan ...")
-	}
-
-	switch args[0] {
-	case "scan":
-		return runScan(args[1:], stdout)
-	default:
-		return usageError("unknown command: %s", args[0])
-	}
-}
-
-func runScan(args []string, stdout io.Writer) error {
-	cfg, err := parseScanArgs(args)
+	var c cli
+	var exited bool
+	parser, err := kong.New(&c,
+		kong.Name("exportsurf"),
+		kong.Description("Report exported Go symbols with no external references."),
+		kong.Writers(stdout, os.Stderr),
+		kong.Exit(func(int) {
+			exited = true
+		}),
+	)
 	if err != nil {
 		return err
 	}
-	fileCfg, err := loadConfig(cfg.configPath)
+
+	_, err = parser.Parse(args)
+	if exited {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	return executeScan(&c, stdout)
+}
+
+func executeScan(cmd *cli, stdout io.Writer) error {
+	patterns := cmd.Patterns
+	if len(patterns) == 0 {
+		patterns = []string{"./..."}
+	}
+
+	fileCfg, err := loadConfig(cmd.Config)
 	if err != nil {
 		return err
 	}
@@ -53,14 +78,10 @@ func runScan(args []string, stdout io.Writer) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	if cfg.sarifOutput && cfg.jsonOutput {
-		return usageError("--sarif and --json are mutually exclusive")
-	}
-
 	candidates, err := scan.Run(scan.Options{
-		Patterns:             cfg.patterns,
+		Patterns:             patterns,
 		WorkingDir:           cwd,
-		TreatTestsAsExternal: cfg.treatTestsAsExternal || fileCfg.Rules.TreatTestsAsExternal,
+		TreatTestsAsExternal: cmd.TreatTestsAsExternal || fileCfg.Rules.TreatTestsAsExternal,
 		ExcludePackages:      fileCfg.Exclude.Packages,
 		ExcludeSymbols:       fileCfg.Exclude.Symbols,
 		Rules:                resolveRules(fileCfg.Rules),
@@ -70,16 +91,16 @@ func runScan(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	candidates, err = filterBaseline(cfg.baselinePath, candidates)
+	candidates, err = filterBaseline(cmd.Baseline, candidates)
 	if err != nil {
 		return err
 	}
 
-	if err := writeOutput(stdout, candidates, cfg.jsonOutput, cfg.sarifOutput); err != nil {
+	if err := writeOutput(stdout, candidates, cmd.JSON, cmd.SARIF); err != nil {
 		return err
 	}
 
-	if cfg.failOnFindings && len(candidates) > 0 {
+	if cmd.FailOnFindings && len(candidates) > 0 {
 		return errFindingsFound
 	}
 
@@ -154,78 +175,6 @@ func writeOutput(
 		return report.WriteJSON(w, candidates)
 	}
 	return report.WriteText(w, candidates)
-}
-
-type scanConfig struct {
-	patterns             []string
-	configPath           string
-	baselinePath         string
-	jsonOutput           bool
-	sarifOutput          bool
-	failOnFindings       bool
-	treatTestsAsExternal bool
-}
-
-func parseScanArgs(args []string) (scanConfig, error) {
-	cfg := scanConfig{
-		patterns: []string{"./..."},
-	}
-
-	var patterns []string
-	var err error
-
-	for idx := 0; idx < len(args); idx++ {
-		arg := args[idx]
-
-		switch {
-		case arg == "--json":
-			cfg.jsonOutput = true
-		case arg == "--sarif":
-			cfg.sarifOutput = true
-		case arg == "--baseline":
-			cfg.baselinePath, idx, err = parseRequiredPathFlag(args, idx, "--baseline", "baseline")
-			if err != nil {
-				return scanConfig{}, err
-			}
-		case arg == "--config":
-			cfg.configPath, idx, err = parseRequiredPathFlag(args, idx, "--config", "config")
-			if err != nil {
-				return scanConfig{}, err
-			}
-		case arg == "--fail-on-findings":
-			cfg.failOnFindings = true
-		case arg == "--treat-tests-as-external":
-			cfg.treatTestsAsExternal = true
-		case arg == "":
-			return scanConfig{}, usageError("empty argument is not allowed")
-		case arg[0] == '-':
-			return scanConfig{}, usageError("unknown flag: %s", arg)
-		default:
-			patterns = append(patterns, arg)
-		}
-	}
-
-	if len(patterns) > 0 {
-		cfg.patterns = slices.Clone(patterns)
-	}
-
-	return cfg, nil
-}
-
-func usageError(format string, args ...any) error {
-	return fmt.Errorf(format, args...)
-}
-
-func parseRequiredPathFlag(args []string, idx int, flag, label string) (string, int, error) {
-	idx++
-	if idx >= len(args) {
-		return "", idx, usageError("%s requires a path", flag)
-	}
-	if args[idx] == "" {
-		return "", idx, usageError("empty %s path is not allowed", label)
-	}
-
-	return args[idx], idx, nil
 }
 
 var defaultConfigNames = []string{

@@ -104,7 +104,7 @@ func candidateToSARIFResult(c Candidate) sarifResult {
 		level = "note"
 	}
 
-	file, line := parseDefinedIn(c.DefinedIn)
+	file, line := parseSrc(c.Src)
 
 	return sarifResult{
 		RuleID:  ruleID,
@@ -121,14 +121,14 @@ func candidateToSARIFResult(c Candidate) sarifResult {
 	}
 }
 
-func parseDefinedIn(definedIn string) (string, int) {
-	idx := strings.LastIndex(definedIn, ":")
+func parseSrc(src string) (string, int) {
+	idx := strings.LastIndex(src, ":")
 	if idx == -1 {
-		return definedIn, 0
+		return src, 0
 	}
-	line, err := strconv.Atoi(definedIn[idx+1:])
+	line, err := strconv.Atoi(src[idx+1:])
 	if err != nil {
-		return definedIn, 0
+		return src, 0
 	}
-	return definedIn[:idx], line
+	return src[:idx], line
 }

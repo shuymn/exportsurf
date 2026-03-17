@@ -29,7 +29,7 @@ func SatisfiesInterfaceReason(iface string) string {
 type Candidate struct {
 	Symbol           string   `json:"symbol"`
 	Kind             string   `json:"kind"`
-	DefinedIn        string   `json:"defined_in"`
+	Src              string   `json:"src"`
 	InternalRefCount int      `json:"internal_ref_count"`
 	Confidence       string   `json:"confidence"`
 	Reasons          []string `json:"reasons"`
@@ -57,11 +57,11 @@ func formatTextLine(c Candidate) string {
 	if c.Confidence == ConfidenceLow && len(c.Reasons) > 0 {
 		return fmt.Sprintf(
 			"%s: %s (%s) [low: %s]",
-			c.DefinedIn, name, c.Kind,
+			c.Src, name, c.Kind,
 			strings.Join(c.Reasons, ", "),
 		)
 	}
-	return fmt.Sprintf("%s: %s (%s)", c.DefinedIn, name, c.Kind)
+	return fmt.Sprintf("%s: %s (%s)", c.Src, name, c.Kind)
 }
 
 func shortName(symbol string) string {

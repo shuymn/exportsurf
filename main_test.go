@@ -13,7 +13,7 @@ import (
 type candidateReport struct {
 	Symbol           string   `json:"symbol"`
 	Kind             string   `json:"kind"`
-	DefinedIn        string   `json:"defined_in"`
+	DefinedIn        string   `json:"src"`
 	InternalRefCount int      `json:"internal_ref_count"`
 	Confidence       string   `json:"confidence"`
 	Reasons          []string `json:"reasons"`
@@ -21,7 +21,7 @@ type candidateReport struct {
 
 func TestScanJSONContract(t *testing.T) {
 	t.Run("basic fixture", func(t *testing.T) {
-		got := runCandidateCLI(t, "scan", "./testdata/fixtures/basic/...", "--json")
+		got := runCandidateCLI(t, "./testdata/fixtures/basic/...", "--json")
 
 		want := []candidateReport{
 			{
@@ -64,7 +64,7 @@ func TestScanJSONContract(t *testing.T) {
 	})
 
 	t.Run("external tests are opt-in", func(t *testing.T) {
-		withoutTests := runCandidateCLI(t, "scan", "./testdata/fixtures/withtests/...", "--json")
+		withoutTests := runCandidateCLI(t, "./testdata/fixtures/withtests/...", "--json")
 		wantWithoutTests := []candidateReport{}
 		if !reflect.DeepEqual(withoutTests, wantWithoutTests) {
 			t.Fatalf("unexpected output without external tests\nwant: %#v\ngot: %#v", wantWithoutTests, withoutTests)
@@ -72,7 +72,6 @@ func TestScanJSONContract(t *testing.T) {
 
 		withTests := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/withtests/...",
 			"--json",
 			"--treat-tests-as-external",
@@ -88,7 +87,7 @@ func TestScanJSONContract(t *testing.T) {
 	})
 
 	t.Run("go test entrypoints are excluded", func(t *testing.T) {
-		got := runCandidateCLI(t, "scan", "./testdata/fixtures/testrunner/...", "--json")
+		got := runCandidateCLI(t, "./testdata/fixtures/testrunner/...", "--json")
 
 		want := []candidateReport{}
 		if !reflect.DeepEqual(got, want) {
@@ -100,7 +99,7 @@ func TestScanJSONContract(t *testing.T) {
 func TestRunTextOutput(t *testing.T) {
 	t.Run("default output is text", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := run([]string{"scan", "./testdata/fixtures/basic/..."}, &stdout)
+		err := run([]string{"./testdata/fixtures/basic/..."}, &stdout)
 		if err != nil {
 			t.Fatalf("run failed: %v", err)
 		}
@@ -118,7 +117,6 @@ func TestRunTextOutput(t *testing.T) {
 	t.Run("text output with baseline", func(t *testing.T) {
 		var stdout bytes.Buffer
 		err := run([]string{
-			"scan",
 			"./testdata/fixtures/basic/...",
 			"--baseline",
 			"./testdata/baseline/basic.json",
@@ -138,7 +136,7 @@ func TestRunTextOutput(t *testing.T) {
 
 	t.Run("no candidates produces empty output", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := run([]string{"scan", "./testdata/fixtures/withtests/..."}, &stdout)
+		err := run([]string{"./testdata/fixtures/withtests/..."}, &stdout)
 		if err != nil {
 			t.Fatalf("run failed: %v", err)
 		}
@@ -153,7 +151,6 @@ func TestRunBaselineContract(t *testing.T) {
 	t.Run("scan --baseline --json filters candidates", func(t *testing.T) {
 		got := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/basic/...",
 			"--baseline",
 			"./testdata/baseline/basic.json",
@@ -197,7 +194,6 @@ func TestConfigContract(t *testing.T) {
 	t.Run("scan and scan --baseline respect config-driven excludes", func(t *testing.T) {
 		scanGot := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/basic/...",
 			"--config",
 			"./testdata/config/basic.yaml",
@@ -237,7 +233,6 @@ func TestConfigContract(t *testing.T) {
 
 		baselineGot := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/basic/...",
 			"--config",
 			"./testdata/config/basic.yaml",
@@ -273,7 +268,6 @@ func TestConfigContract(t *testing.T) {
 	t.Run("config can enable treat_tests_as_external", func(t *testing.T) {
 		got := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/withtests/...",
 			"--config",
 			"./testdata/config/withtests.yaml",
@@ -287,7 +281,7 @@ func TestConfigContract(t *testing.T) {
 	})
 
 	t.Run("missing config keeps default behavior", func(t *testing.T) {
-		got := runCandidateCLI(t, "scan", "./testdata/fixtures/withtests/...", "--json")
+		got := runCandidateCLI(t, "./testdata/fixtures/withtests/...", "--json")
 
 		want := []candidateReport{}
 		if !reflect.DeepEqual(got, want) {
@@ -303,7 +297,6 @@ func TestConfigContract(t *testing.T) {
 
 		got := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/withtests/...",
 			"--config",
 			configPath,
@@ -366,7 +359,6 @@ func TestRunMethodScanning(t *testing.T) {
 	t.Run("methods reported by default", func(t *testing.T) {
 		got := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/methods/...",
 			"--json",
 		)
@@ -410,7 +402,6 @@ func TestRunMethodScanning(t *testing.T) {
 	t.Run("methods excluded with rules.methods false", func(t *testing.T) {
 		got := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/methods/...",
 			"--config",
 			"./testdata/config/methods.yaml",
@@ -432,7 +423,6 @@ func TestRunFieldScanning(t *testing.T) {
 	t.Run("fields reported by default", func(t *testing.T) {
 		got := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/fields/...",
 			"--json",
 		)
@@ -484,7 +474,6 @@ func TestRunFieldScanning(t *testing.T) {
 	t.Run("fields excluded with rules.fields false", func(t *testing.T) {
 		got := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/fields/...",
 			"--config",
 			"./testdata/config/fields.yaml",
@@ -502,22 +491,10 @@ func TestRunFieldScanning(t *testing.T) {
 	})
 }
 
-func TestRunDiffRemoved(t *testing.T) {
-	var stdout bytes.Buffer
-	err := run([]string{
-		"diff",
-		"--baseline", "./testdata/baseline/basic.json",
-		"./testdata/fixtures/basic/...",
-	}, &stdout)
-	if err == nil {
-		t.Fatal("expected error for diff subcommand, got nil")
-	}
-}
-
 func TestRunFailOnFindings(t *testing.T) {
 	t.Run("findings with flag causes error", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := run([]string{"scan", "./testdata/fixtures/basic/...", "--json", "--fail-on-findings"}, &stdout)
+		err := run([]string{"./testdata/fixtures/basic/...", "--json", "--fail-on-findings"}, &stdout)
 		if !errors.Is(err, errFindingsFound) {
 			t.Fatalf("expected errFindingsFound, got: %v", err)
 		}
@@ -534,7 +511,7 @@ func TestRunFailOnFindings(t *testing.T) {
 
 	t.Run("no findings with flag exits normally", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := run([]string{"scan", "./testdata/fixtures/withtests/...", "--json", "--fail-on-findings"}, &stdout)
+		err := run([]string{"./testdata/fixtures/withtests/...", "--json", "--fail-on-findings"}, &stdout)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -542,7 +519,7 @@ func TestRunFailOnFindings(t *testing.T) {
 
 	t.Run("findings without flag exits normally", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := run([]string{"scan", "./testdata/fixtures/basic/...", "--json"}, &stdout)
+		err := run([]string{"./testdata/fixtures/basic/...", "--json"}, &stdout)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -550,7 +527,7 @@ func TestRunFailOnFindings(t *testing.T) {
 
 	t.Run("text output with fail-on-findings", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := run([]string{"scan", "./testdata/fixtures/basic/...", "--fail-on-findings"}, &stdout)
+		err := run([]string{"./testdata/fixtures/basic/...", "--fail-on-findings"}, &stdout)
 		if !errors.Is(err, errFindingsFound) {
 			t.Fatalf("expected errFindingsFound, got: %v", err)
 		}
@@ -563,7 +540,7 @@ func TestRunFailOnFindings(t *testing.T) {
 
 func TestRunConfidenceScoring(t *testing.T) {
 	t.Run("default preserves package main reason", func(t *testing.T) {
-		got := runCandidateCLI(t, "scan", "./testdata/fixtures/confidence_main/...", "--json")
+		got := runCandidateCLI(t, "./testdata/fixtures/confidence_main/...", "--json")
 
 		want := []candidateReport{
 			{
@@ -584,7 +561,6 @@ func TestRunConfidenceScoring(t *testing.T) {
 	t.Run("mark_main_low_confidence false removes package main reason", func(t *testing.T) {
 		got := runCandidateCLI(
 			t,
-			"scan",
 			"./testdata/fixtures/confidence_main/...",
 			"--config",
 			"./testdata/config/mark_main_false.yaml",
@@ -608,7 +584,7 @@ func TestRunConfidenceScoring(t *testing.T) {
 	})
 
 	t.Run("reflect cgo linkname patterns detected", func(t *testing.T) {
-		got := runCandidateCLI(t, "scan", "./testdata/fixtures/confidence/...", "--json")
+		got := runCandidateCLI(t, "./testdata/fixtures/confidence/...", "--json")
 
 		want := []candidateReport{
 			{
@@ -651,7 +627,7 @@ func TestRunConfidenceScoring(t *testing.T) {
 	})
 
 	t.Run("plugin usage detected", func(t *testing.T) {
-		got := runCandidateCLI(t, "scan", "./testdata/fixtures/confidence_plugin/...", "--json")
+		got := runCandidateCLI(t, "./testdata/fixtures/confidence_plugin/...", "--json")
 
 		want := []candidateReport{
 			{
@@ -726,7 +702,7 @@ type sarifRegion struct {
 func TestRunSARIFOutput(t *testing.T) {
 	t.Run("sarif output for basic fixture", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := run([]string{"scan", "./testdata/fixtures/basic/...", "--sarif"}, &stdout)
+		err := run([]string{"./testdata/fixtures/basic/...", "--sarif"}, &stdout)
 		if err != nil {
 			t.Fatalf("run failed: %v", err)
 		}
@@ -780,7 +756,7 @@ func TestRunSARIFOutput(t *testing.T) {
 	t.Run("sarif with baseline filters results", func(t *testing.T) {
 		var stdout bytes.Buffer
 		err := run([]string{
-			"scan", "./testdata/fixtures/basic/...",
+			"./testdata/fixtures/basic/...",
 			"--sarif", "--baseline", "./testdata/baseline/basic.json",
 		}, &stdout)
 		if err != nil {
@@ -799,7 +775,7 @@ func TestRunSARIFOutput(t *testing.T) {
 
 	t.Run("sarif and json are mutually exclusive", func(t *testing.T) {
 		var stdout bytes.Buffer
-		err := run([]string{"scan", "./testdata/fixtures/basic/...", "--sarif", "--json"}, &stdout)
+		err := run([]string{"./testdata/fixtures/basic/...", "--sarif", "--json"}, &stdout)
 		if err == nil {
 			t.Fatal("expected error for --sarif with --json")
 		}
