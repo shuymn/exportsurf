@@ -148,40 +148,10 @@ func TestScanJSONContract(t *testing.T) {
 		}
 	})
 
-	t.Run("go test entrypoints are downgraded but helpers remain", func(t *testing.T) {
+	t.Run("go test entrypoints are excluded but helpers remain", func(t *testing.T) {
 		got := runCandidateCLI(t, "scan", "./testdata/fixtures/testrunner/...", "--json")
 
 		want := []candidateReport{
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/testrunner/lib.BenchmarkEntrypoint",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/testrunner/lib/lib_test.go:7",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "low",
-				Reasons:             []string{"go test entrypoint"},
-			},
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/testrunner/lib.ExampleEntrypoint",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/testrunner/lib/lib_test.go:11",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "low",
-				Reasons:             []string{"go test entrypoint"},
-			},
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/testrunner/lib.FuzzEntrypoint",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/testrunner/lib/lib_test.go:9",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "low",
-				Reasons:             []string{"go test entrypoint"},
-			},
 			{
 				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/testrunner/lib.HelperAPI",
 				Kind:                "func",
@@ -201,16 +171,6 @@ func TestScanJSONContract(t *testing.T) {
 				ExternalRefExamples: []string{},
 				Confidence:          "high",
 				Reasons:             []string{},
-			},
-			{
-				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/testrunner/lib.TestEntrypoint",
-				Kind:                "func",
-				DefinedIn:           "testdata/fixtures/testrunner/lib/lib_test.go:5",
-				InternalRefCount:    0,
-				ExternalRefPkgCount: 0,
-				ExternalRefExamples: []string{},
-				Confidence:          "low",
-				Reasons:             []string{"go test entrypoint"},
 			},
 		}
 

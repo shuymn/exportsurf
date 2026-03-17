@@ -90,6 +90,9 @@ func collectDefinitions(pkgs []*packages.Package, workingDir string) map[string]
 			if !ok || !isCandidateObject(obj) {
 				continue
 			}
+			if meta.isTest && isGoTestEntrypoint(obj) {
+				continue
+			}
 
 			key := objectKey(obj)
 			states[key] = &candidateState{
@@ -111,7 +114,7 @@ func newCandidate(
 	fset *token.FileSet,
 	workingDir string,
 ) report.Candidate {
-	reasons := candidateReasons(pkg, obj, meta)
+	reasons := candidateReasons(pkg, meta)
 	confidence := report.ConfidenceHigh
 	if len(reasons) > 0 {
 		confidence = report.ConfidenceLow
@@ -129,7 +132,7 @@ func newCandidate(
 	}
 }
 
-func candidateReasons(pkg *packages.Package, obj types.Object, meta fileInfo) []string {
+func candidateReasons(pkg *packages.Package, meta fileInfo) []string {
 	reasons := []string{}
 	if pkg.Name == "main" {
 		reasons = append(reasons, "package main")
@@ -140,10 +143,6 @@ func candidateReasons(pkg *packages.Package, obj types.Object, meta fileInfo) []
 	if meta.generated {
 		reasons = append(reasons, "generated file")
 	}
-	if meta.isTest && isGoTestEntrypoint(obj) {
-		reasons = append(reasons, "go test entrypoint")
-	}
-
 	return reasons
 }
 
