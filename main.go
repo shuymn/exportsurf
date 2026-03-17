@@ -53,15 +53,18 @@ func runScan(args []string, stdout io.Writer) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
+	if cfg.sarifOutput && cfg.jsonOutput {
+		return usageError("--sarif and --json are mutually exclusive")
+	}
+
 	candidates, err := scan.Run(scan.Options{
 		Patterns:             cfg.patterns,
 		WorkingDir:           cwd,
-		TreatTestsAsExternal: cfg.treatTestsAsExternal || fileCfg.TreatTestsAsExternal,
+		TreatTestsAsExternal: cfg.treatTestsAsExternal || fileCfg.Rules.TreatTestsAsExternal,
 		ExcludePackages:      fileCfg.Exclude.Packages,
 		ExcludeSymbols:       fileCfg.Exclude.Symbols,
-		IncludeMethods:       fileCfg.Include.Methods,
-		IncludeFields:        fileCfg.Include.Fields,
-		LowConfidence:        resolveLowConfidence(fileCfg.LowConfidence),
+		Rules:                resolveRules(fileCfg.Rules),
+		LowConfidence:        resolveLowConfidence(fileCfg.Rules.MarkLowConfidence),
 	})
 	if err != nil {
 		return err
@@ -72,7 +75,7 @@ func runScan(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	if err := writeOutput(stdout, candidates, cfg.jsonOutput); err != nil {
+	if err := writeOutput(stdout, candidates, cfg.jsonOutput, cfg.sarifOutput); err != nil {
 		return err
 	}
 
@@ -83,7 +86,18 @@ func runScan(args []string, stdout io.Writer) error {
 	return nil
 }
 
-func resolveLowConfidence(cfg config.LowConfidenceConfig) scan.LowConfidenceFlags {
+func resolveRules(cfg config.RulesConfig) scan.RulesFlags {
+	return scan.RulesFlags{
+		Funcs:   boolOrTrue(cfg.IncludeFuncs),
+		Types:   boolOrTrue(cfg.IncludeTypes),
+		Vars:    boolOrTrue(cfg.IncludeVars),
+		Consts:  boolOrTrue(cfg.IncludeConsts),
+		Methods: boolOrTrue(cfg.IncludeMethods),
+		Fields:  boolOrTrue(cfg.IncludeFields),
+	}
+}
+
+func resolveLowConfidence(cfg config.MarkLowConfidence) scan.LowConfidenceFlags {
 	return scan.LowConfidenceFlags{
 		PackageMain:           boolOrTrue(cfg.PackageMain),
 		PackageUnderCmd:       boolOrTrue(cfg.PackageUnderCmd),
@@ -131,7 +145,11 @@ func writeOutput(
 	w io.Writer,
 	candidates []report.Candidate,
 	jsonOutput bool,
+	sarifOutput bool,
 ) error {
+	if sarifOutput {
+		return report.WriteSARIF(w, candidates)
+	}
 	if jsonOutput {
 		return report.WriteJSON(w, candidates)
 	}
@@ -143,6 +161,7 @@ type scanConfig struct {
 	configPath           string
 	baselinePath         string
 	jsonOutput           bool
+	sarifOutput          bool
 	failOnFindings       bool
 	treatTestsAsExternal bool
 }
@@ -161,6 +180,8 @@ func parseScanArgs(args []string) (scanConfig, error) {
 		switch {
 		case arg == "--json":
 			cfg.jsonOutput = true
+		case arg == "--sarif":
+			cfg.sarifOutput = true
 		case arg == "--baseline":
 			cfg.baselinePath, idx, err = parseRequiredPathFlag(args, idx, "--baseline", "baseline")
 			if err != nil {
@@ -207,9 +228,19 @@ func parseRequiredPathFlag(args []string, idx int, flag, label string) (string, 
 	return args[idx], idx, nil
 }
 
+var defaultConfigNames = []string{
+	".exportsurf.yaml",
+	".exportsurf.yml",
+	"exportsurf.yaml",
+	"exportsurf.yml",
+}
+
 func loadConfig(path string) (config.File, error) {
 	if path == "" {
-		return config.File{}, nil
+		path = discoverConfig()
+		if path == "" {
+			return config.File{}, nil
+		}
 	}
 
 	cfg, err := config.Load(path)
@@ -218,4 +249,13 @@ func loadConfig(path string) (config.File, error) {
 	}
 
 	return cfg, nil
+}
+
+func discoverConfig() string {
+	for _, name := range defaultConfigNames {
+		if _, err := os.Stat(name); err == nil {
+			return name
+		}
+	}
+	return ""
 }

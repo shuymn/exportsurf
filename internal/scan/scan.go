@@ -32,14 +32,22 @@ type LowConfidenceFlags struct {
 	SerializationTag      bool
 }
 
+type RulesFlags struct {
+	Funcs   bool
+	Types   bool
+	Vars    bool
+	Consts  bool
+	Methods bool
+	Fields  bool
+}
+
 type Options struct {
 	Patterns             []string
 	WorkingDir           string
 	TreatTestsAsExternal bool
 	ExcludePackages      []string
 	ExcludeSymbols       []string
-	IncludeMethods       bool
-	IncludeFields        bool
+	Rules                RulesFlags
 	LowConfidence        LowConfidenceFlags
 }
 
@@ -79,18 +87,18 @@ func Run(opts Options) ([]report.Candidate, error) {
 	}
 
 	var ifaces []namedInterface
-	if opts.IncludeMethods {
+	if opts.Rules.Methods {
 		ifaces = collectInterfaces(pkgs)
 	}
 
 	var fkeys *fieldKeyMap
-	if opts.IncludeFields {
+	if opts.Rules.Fields {
 		fkeys = buildFieldKeyMap(pkgs)
 	}
 
-	states := collectDefinitions(pkgs, opts.WorkingDir, ifaces, opts.LowConfidence)
+	states := collectDefinitions(pkgs, opts.WorkingDir, ifaces, opts.LowConfidence, opts.Rules)
 
-	if opts.IncludeFields {
+	if opts.Rules.Fields {
 		collectFieldDefs(pkgs, opts.WorkingDir, states, fkeys, opts.LowConfidence)
 	}
 
@@ -115,6 +123,7 @@ func collectDefinitions(
 	workingDir string,
 	ifaces []namedInterface,
 	flags LowConfidenceFlags,
+	rules RulesFlags,
 ) map[string]*candidateState {
 	states := map[string]*candidateState{}
 
@@ -129,7 +138,7 @@ func collectDefinitions(
 			if !ok {
 				continue
 			}
-			if key, ifcs, ok := classifyDef(obj, meta, ifaces); ok {
+			if key, ifcs, ok := classifyDef(obj, meta, ifaces, rules); ok {
 				c := newCandidate(
 					key, pkg, obj, meta, pkg.Fset, workingDir, ifcs, flags,
 				)
@@ -148,19 +157,38 @@ func classifyDef(
 	obj types.Object,
 	meta fileInfo,
 	ifaces []namedInterface,
+	rules RulesFlags,
 ) (string, []namedInterface, bool) {
 	if isCandidateObject(obj) {
+		if !isKindEnabled(obj, rules) {
+			return "", nil, false
+		}
 		if meta.isTest && isGoTestEntrypoint(obj) {
 			return "", nil, false
 		}
 		return objectKey(obj), nil, true
 	}
-	if len(ifaces) > 0 {
+	if rules.Methods && len(ifaces) > 0 {
 		if key, ok := methodCandidateKey(obj); ok {
 			return key, ifaces, true
 		}
 	}
 	return "", nil, false
+}
+
+func isKindEnabled(obj types.Object, rules RulesFlags) bool {
+	switch obj.(type) {
+	case *types.Func:
+		return rules.Funcs
+	case *types.TypeName:
+		return rules.Types
+	case *types.Const:
+		return rules.Consts
+	case *types.Var:
+		return rules.Vars
+	default:
+		return false
+	}
 }
 
 func newCandidate(
@@ -194,13 +222,13 @@ func newCandidate(
 func candidateReasons(pkg *packages.Package, meta fileInfo, flags LowConfidenceFlags) []string {
 	reasons := []string{}
 	if flags.PackageMain && pkg.Name == "main" {
-		reasons = append(reasons, "package main")
+		reasons = append(reasons, report.ReasonPackageMain)
 	}
 	if flags.PackageUnderCmd && packageUnderCmd(pkg.PkgPath) {
-		reasons = append(reasons, "package under cmd")
+		reasons = append(reasons, report.ReasonPackageUnderCmd)
 	}
 	if flags.GeneratedFile && meta.generated {
-		reasons = append(reasons, "generated file")
+		reasons = append(reasons, report.ReasonGeneratedFile)
 	}
 	return reasons
 }
@@ -733,24 +761,22 @@ func buildCandidate(symbol, kind, definedIn string, reasons []string) report.Can
 	}
 
 	return report.Candidate{
-		Symbol:              symbol,
-		Kind:                kind,
-		DefinedIn:           definedIn,
-		InternalRefCount:    0,
-		ExternalRefPkgCount: 0,
-		ExternalRefExamples: []string{},
-		Confidence:          confidence,
-		Reasons:             reasons,
+		Symbol:           symbol,
+		Kind:             kind,
+		DefinedIn:        definedIn,
+		InternalRefCount: 0,
+		Confidence:       confidence,
+		Reasons:          reasons,
 	}
 }
 
 func fieldReasons(fm fieldMeta, flags LowConfidenceFlags) []string {
 	var reasons []string
 	if flags.EmbeddedField && fm.embedded {
-		reasons = append(reasons, "embedded field")
+		reasons = append(reasons, report.ReasonEmbeddedField)
 	}
 	if flags.SerializationTag && hasSerializationTag(fm.tag) {
-		reasons = append(reasons, "has serialization tag")
+		reasons = append(reasons, report.ReasonSerializationTag)
 	}
 	return reasons
 }
@@ -812,16 +838,16 @@ func applyConfidencePatterns(states map[string]*candidateState, patterns confide
 		var reasons []string
 
 		if patterns.reflectTypes[key] {
-			reasons = append(reasons, "reflect usage")
+			reasons = append(reasons, report.ReasonReflectUsage)
 		}
 		if patterns.pluginPackages[candidatePackagePath(key)] {
-			reasons = append(reasons, "plugin usage")
+			reasons = append(reasons, report.ReasonPluginUsage)
 		}
 		if patterns.cgoExports[key] {
-			reasons = append(reasons, "cgo export")
+			reasons = append(reasons, report.ReasonCgoExport)
 		}
 		if patterns.linknameTargets[key] {
-			reasons = append(reasons, "go:linkname")
+			reasons = append(reasons, report.ReasonLinkname)
 		}
 
 		if len(reasons) > 0 {
@@ -991,7 +1017,7 @@ func methodInterfaceReasons(
 		}
 		for m := range ni.iface.Methods() {
 			if m.Name() == methodName {
-				reasons = append(reasons, "satisfies interface "+ni.name)
+				reasons = append(reasons, report.SatisfiesInterfaceReason(ni.name))
 				break
 			}
 		}

@@ -11,10 +11,8 @@ import (
 )
 
 type File struct {
-	Exclude              ExcludeConfig       `yaml:"exclude"`
-	Include              IncludeConfig       `yaml:"include"`
-	TreatTestsAsExternal bool                `yaml:"treat_tests_as_external"`
-	LowConfidence        LowConfidenceConfig `yaml:"low_confidence"`
+	Exclude ExcludeConfig `yaml:"exclude"`
+	Rules   RulesConfig   `yaml:"rules"`
 }
 
 type ExcludeConfig struct {
@@ -22,12 +20,18 @@ type ExcludeConfig struct {
 	Symbols  []string `yaml:"symbols"`
 }
 
-type IncludeConfig struct {
-	Methods bool `yaml:"methods"`
-	Fields  bool `yaml:"fields"`
+type RulesConfig struct {
+	IncludeFuncs         *bool             `yaml:"include_funcs"`
+	IncludeTypes         *bool             `yaml:"include_types"`
+	IncludeVars          *bool             `yaml:"include_vars"`
+	IncludeConsts        *bool             `yaml:"include_consts"`
+	IncludeMethods       *bool             `yaml:"include_methods"`
+	IncludeFields        *bool             `yaml:"include_fields"`
+	TreatTestsAsExternal bool              `yaml:"treat_tests_as_external"`
+	MarkLowConfidence    MarkLowConfidence `yaml:"mark_low_confidence"`
 }
 
-type LowConfidenceConfig struct {
+type MarkLowConfidence struct {
 	PackageMain           *bool `yaml:"package_main"`
 	PackageUnderCmd       *bool `yaml:"package_under_cmd"`
 	GeneratedFile         *bool `yaml:"generated_file"`

@@ -1,1 +1,2 @@
-treat_tests_as_external: true
+rules:
+  treat_tests_as_external: true

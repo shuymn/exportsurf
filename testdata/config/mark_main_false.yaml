@@ -1,2 +1,3 @@
-low_confidence:
-  package_main: false
+rules:
+  mark_low_confidence:
+    package_main: false

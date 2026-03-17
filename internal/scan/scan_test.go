@@ -18,6 +18,10 @@ func TestRunCurrentModuleDoesNotPanic(t *testing.T) {
 	if _, err := Run(Options{
 		Patterns:   []string{"./..."},
 		WorkingDir: repoRoot,
+		Rules: RulesFlags{
+			Funcs: true, Types: true, Vars: true, Consts: true,
+			Methods: true, Fields: true,
+		},
 	}); err != nil {
 		t.Fatalf("Run returned error for current module: %v", err)
 	}

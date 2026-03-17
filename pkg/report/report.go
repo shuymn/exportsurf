@@ -10,17 +10,29 @@ import (
 const (
 	ConfidenceHigh = "high"
 	ConfidenceLow  = "low"
+
+	ReasonPackageMain      = "package_main"
+	ReasonPackageUnderCmd  = "package_under_cmd"
+	ReasonGeneratedFile    = "generated_file"
+	ReasonEmbeddedField    = "embedded_field"
+	ReasonSerializationTag = "serialization_tag"
+	ReasonReflectUsage     = "reflect_usage"
+	ReasonPluginUsage      = "plugin_usage"
+	ReasonCgoExport        = "cgo_export"
+	ReasonLinkname         = "linkname"
 )
 
+func SatisfiesInterfaceReason(iface string) string {
+	return "satisfies_interface:" + iface
+}
+
 type Candidate struct {
-	Symbol              string   `json:"symbol"`
-	Kind                string   `json:"kind"`
-	DefinedIn           string   `json:"defined_in"`
-	InternalRefCount    int      `json:"internal_ref_count"`
-	ExternalRefPkgCount int      `json:"external_ref_pkg_count"`
-	ExternalRefExamples []string `json:"external_ref_examples"`
-	Confidence          string   `json:"confidence"`
-	Reasons             []string `json:"reasons"`
+	Symbol           string   `json:"symbol"`
+	Kind             string   `json:"kind"`
+	DefinedIn        string   `json:"defined_in"`
+	InternalRefCount int      `json:"internal_ref_count"`
+	Confidence       string   `json:"confidence"`
+	Reasons          []string `json:"reasons"`
 }
 
 func WriteJSON(w io.Writer, candidates []Candidate) error {

@@ -1,137 +1,113 @@
 # exportsurf
 
-`exportsurf` is a Go CLI that scans a repository and reports exported package-level identifiers with internal and external reference evidence for API review.
+`exportsurf` scans a Go module and reports exported symbols that have no external references — candidates that may be safe to unexport.
 
-It is designed as a report tool for public API review, not as a linter or `go vet`-style diagnostic. The output is intended to help you review exported symbols with the evidence needed to decide whether they may be safe to unexport.
+It is a report tool for public API review, not a linter. The output provides reference counts, confidence levels, and reasons to help you make informed decisions.
 
-## Current Scope
+## Install
 
-The current implementation scans exported package-level:
-
-- `func`
-- `type`
-- `var`
-- `const`
-
-The scanner currently:
-
-- reports candidates as JSON
-- counts internal references within the defining package
-- counts external package references
-- includes `external_ref_examples` and `reasons` for evidence-rich candidate review
-- downgrades confidence for `package main`
-- downgrades confidence for packages under `cmd/**`
-- downgrades confidence for generated files
-- downgrades confidence for `go test` entrypoints such as `TestXxx`, `BenchmarkXxx`, `FuzzXxx`, and `ExampleXxx`
-- reads repo-local config from YAML via `--config`
-- filters exact-match package and symbol suppressions from config
+```bash
+go install github.com/shuymn/exportsurf@latest
+```
 
 ## Usage
 
-Build the binary:
-
 ```bash
-task build
+exportsurf scan ./...                # text output (default)
+exportsurf scan ./... --json         # JSON output
+exportsurf scan ./... --sarif        # SARIF v2.1.0 output
+exportsurf scan ./... --baseline ./baseline.json  # filter accepted symbols
+exportsurf scan ./... --fail-on-findings          # exit non-zero on candidates (CI)
 ```
 
-Run the scanner against the current module:
+Flags can be combined. `--sarif` and `--json` are mutually exclusive.
 
-```bash
-./bin/exportsurf scan ./... --json
-```
+## Config
 
-Treat external `_test.go` references as external uses:
-
-```bash
-./bin/exportsurf scan ./... --json --treat-tests-as-external
-```
-
-Apply repo-local suppressions from config:
-
-```bash
-./bin/exportsurf scan ./... --json --config ./exportsurf.yaml
-./bin/exportsurf diff ./... --baseline ./exportsurf-baseline.json --config ./exportsurf.yaml
-```
-
-You can also run it without building first:
-
-```bash
-go run . scan ./... --json
-```
-
-Config schema:
+Config is auto-discovered from the working directory in this order: `.exportsurf.yaml`, `.exportsurf.yml`, `exportsurf.yaml`, `exportsurf.yml`. Use `--config <path>` to specify an explicit path (overrides auto-discovery).
 
 ```yaml
-exclude_packages:
-  - github.com/your/module/cmd/tool
-exclude_symbols:
-  - github.com/your/module/pkg/api.LegacyExport
-treat_tests_as_external: true
+exclude:
+  packages:
+    - github.com/your/module/cmd/tool
+  symbols:
+    - github.com/your/module/pkg/api.LegacyExport
+
+rules:
+  include_funcs: true
+  include_types: true
+  include_vars: true
+  include_consts: true
+  include_methods: true
+  include_fields: true
+  treat_tests_as_external: false
+  mark_low_confidence:
+    package_main: true
+    package_under_cmd: true
+    generated_file: true
+    reflect_usage: true
+    plugin_usage: true
+    cgo_export: true
+    linkname: true
+    interface_satisfaction: true
+    embedded_field: true
+    serialization_tag: true
 ```
 
-`exclude_packages` and `exclude_symbols` are exact-match filters. `treat_tests_as_external` defaults to `false`; the CLI flag is an additive override on top of config.
+- `exclude` — exact-match filters for packages and symbols.
+- `rules.include_*` — which symbol kinds to scan. All default to `true`.
+- `rules.treat_tests_as_external` — count external `_test.go` references as external uses. The CLI flag `--treat-tests-as-external` is an additive override.
+- `rules.mark_low_confidence.*` — which patterns trigger low confidence. All default to `true`.
 
 ## Output
 
-`scan --json` emits an array of candidate-report objects.
+Default output is go vet-style text:
 
-Example:
+```
+lib/lib.go:3: Candidate (type)
+lib/lib.go:7: ExportedConst (const)
+```
+
+`--json` emits an array of candidate objects:
 
 ```json
 [
   {
-    "symbol": "github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.UsedExternally",
+    "symbol": "github.com/your/module/lib.Candidate",
     "kind": "type",
-    "defined_in": "testdata/fixtures/basic/lib/lib.go:5",
-    "internal_ref_count": 0,
-    "external_ref_pkg_count": 1,
-    "external_ref_examples": [
-      "testdata/fixtures/basic/app/app.go:5"
-    ],
+    "defined_in": "lib/lib.go:3",
+    "internal_ref_count": 4,
     "confidence": "high",
     "reasons": []
   }
 ]
 ```
 
-Field meanings:
+| Field | Description |
+|-------|-------------|
+| `symbol` | Fully qualified symbol name |
+| `kind` | `func`, `type`, `var`, `const`, `method`, `field` |
+| `defined_in` | Source file and line |
+| `internal_ref_count` | References within the defining package |
+| `confidence` | `high` or `low` |
+| `reasons` | Why confidence was downgraded (e.g. `package_main`, `reflect_usage`) |
 
-- `symbol`: fully qualified symbol name
-- `kind`: symbol kind
-- `defined_in`: source file and line of the definition
-- `internal_ref_count`: references found inside the defining package
-- `external_ref_pkg_count`: number of external packages that reference the symbol
-- `external_ref_examples`: example source locations for detected external references
-- `confidence`: current confidence label for the candidate
-- `reasons`: annotations that explain why confidence was downgraded or why the candidate needs extra review
+`--sarif` emits SARIF v2.1.0 JSON. High-confidence candidates map to `level: "warning"`, low-confidence to `level: "note"`.
+
+## Known Limitations
+
+- Build tags, `GOOS`, and `GOARCH`-dependent references may be missed. The scanner loads packages with default build constraints.
 
 ## Development
 
-Use `task` as the primary entrypoint for local development.
-
-Common commands:
+Use [Task](https://taskfile.dev) as the development interface:
 
 ```bash
-task build
-task test
-task lint
-task fmt
-task check
+task check   # lint + build + test (primary gate)
+task test    # tests with race detection
+task lint    # golangci-lint
+task fmt     # format
+task build   # build binary
 ```
 
-`task check` runs lint, compile checks, tests, and module verification.
-
-If you use Git hooks locally:
-
-```bash
-lefthook install
-```
-
-## Repository Layout
-
-- `main.go`: CLI entrypoint
-- `internal/config`: YAML config contract
-- `internal/scan`: package loading and reference aggregation
-- `pkg/report`: report serialization
-- `testdata/fixtures`: contract fixtures for scanner behavior
-- `docs/adr`: design decisions
+Git hooks: `lefthook install`
