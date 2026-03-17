@@ -99,6 +99,13 @@ func TestScanJSONContract(t *testing.T) {
 }
 
 func TestScanJSONContractCurrentModuleHasNoCandidates(t *testing.T) {
+	// go/types has a known data race in (*Named).unpack() that is triggered when
+	// x/tools/go/packages type-checks many packages concurrently. Scanning "./..."
+	// from the module root loads enough packages to hit this race reliably.
+	if raceEnabled {
+		t.Skip("known data race in go/types triggered by concurrent packages.Load type-checking")
+	}
+
 	got := runCandidateCLI(t, "--json")
 
 	want := []candidateReport{}
