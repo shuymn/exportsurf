@@ -15,7 +15,7 @@
 - Question: Config 構造を nested に変更するか
   - Class: `non-blocking`
   - Resolution: `decision`
-  - Status: `resolved` — 現在の flat 構造を維持
+  - Status: `resolved` — nested 構造に変更（exclude, include, low_confidence）
 - Question: Exit code semantics
   - Class: `blocking`
   - Resolution: `decision`
@@ -31,7 +31,7 @@
 
 - [x] Theme: Method scanning — exported method を候補対象に追加
 
-- [ ] Theme: Struct field scanning — exported struct field を候補対象に追加
+- [x] Theme: Struct field scanning — exported struct field を候補対象に追加
   - Outcome: `include_fields: true` 設定時、exported struct field も候補として報告される。embedded field・serialization tag 付き field は low confidence で報告される
   - Goal: scan が exported struct field を候補に含め、embedded field と serialization tag を検出して confidence に反映
   - Must Not Break: 既存スキャン結果、`include_fields` 未設定時のデフォルト動作
@@ -49,7 +49,7 @@
   - Why not split vertically further?: field の定義収集・参照追跡・embedded/tag 検出は同じ型情報に依存し不可分
   - Escalate if: promoted field の参照追跡で `go/types` の `Uses` 解決が不十分なケースが見つかった場合
 
-- [ ] Theme: Confidence scoring configuration — mark_main_low_confidence 設定化 + reflect/plugin/cgo/linkname パターン検出
+- [x] Theme: Confidence scoring configuration — mark_main_low_confidence 設定化 + reflect/plugin/cgo/linkname パターン検出
   - Outcome: confidence 判定がユーザー設定可能になり、reflect/plugin/cgo/linkname パターンが low confidence として検出される
   - Goal: `mark_main_low_confidence` を config で切り替え可能にし、各種パターンを検出して low confidence に分類
   - Must Not Break: 既存の confidence 判定（設定未指定時のデフォルトは現状維持: package main → low）
