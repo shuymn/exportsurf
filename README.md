@@ -1,8 +1,6 @@
 # exportsurf
 
-`exportsurf` scans a Go module and reports exported symbols that have no external references — candidates that may be safe to unexport.
-
-It is a report tool for public API review, not a linter. The output provides reference counts, confidence levels, and reasons to help you make informed decisions.
+`exportsurf` scans a Go module and reports exported symbols with no external references. Each candidate includes reference counts and confidence annotations for API surface review.
 
 ## Install
 
@@ -20,7 +18,7 @@ exportsurf scan ./... --baseline ./baseline.json  # filter accepted symbols
 exportsurf scan ./... --fail-on-findings          # exit non-zero on candidates (CI)
 ```
 
-Flags can be combined. `--sarif` and `--json` are mutually exclusive.
+`--sarif` and `--json` are mutually exclusive.
 
 ## Config
 
@@ -29,9 +27,14 @@ Config is auto-discovered from the working directory in this order: `.exportsurf
 ```yaml
 exclude:
   packages:
-    - github.com/your/module/cmd/tool
+    - github.com/your/module/cmd/tool       # package path
   symbols:
-    - github.com/your/module/pkg/api.LegacyExport
+    - github.com/your/module/pkg.FuncName   # func
+    - github.com/your/module/pkg.TypeName   # type
+    - github.com/your/module/pkg.VarName    # var
+    - github.com/your/module/pkg.ConstName  # const
+    - github.com/your/module/pkg.Type.Method  # method
+    - github.com/your/module/pkg.Type.Field   # field
 
 rules:
   include_funcs: true
@@ -57,7 +60,7 @@ rules:
 - `exclude` — exact-match filters for packages and symbols.
 - `rules.include_*` — which symbol kinds to scan. All default to `true`.
 - `rules.treat_tests_as_external` — count external `_test.go` references as external uses. The CLI flag `--treat-tests-as-external` is an additive override.
-- `rules.mark_low_confidence.*` — which patterns trigger low confidence. All default to `true`.
+- `rules.mark_low_confidence.*` — which patterns trigger low confidence. All default to `true`. Setting a key to `false` skips the confidence downgrade for that pattern, keeping the candidate as `high`.
 
 ## Output
 

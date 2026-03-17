@@ -67,7 +67,7 @@
   - Why not split vertically further?: 全パターンが同じ confidence 判定パイプラインと reason 生成ロジックに影響する
   - Escalate if: reflect/plugin 検出の spike で false positive 率が許容できない場合
 
-- [ ] Theme: SARIF output format
+- [x] Theme: SARIF output format
   - Outcome: `--sarif` フラグで SARIF 形式の出力が可能になる
   - Goal: SARIF v2.1.0 形式の出力を追加。Markdown 変換は外部ツール（sarif-to-md-rs, go-sarif-to-markdown-table 等）に委譲
   - Must Not Break: 既存の JSON / テキスト出力
