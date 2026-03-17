@@ -1,14 +1,14 @@
+<!-- Do not restructure or delete sections. Update inline when behavior changes. -->
 <!-- Maintenance: Update when tasks, hooks, or project scope changes. -->
 <!-- Audience: All docs under docs/ and this file are written for coding agents (LLMs), not humans. Use direct instructions, not tutorials or explanations of concepts the agent already knows. Apply this rule when creating or updating any documentation. -->
 
 ## Build, Test, and Development Commands
 
-- Use Task (Taskfile.yml) as the default interface; run `task` to list all tasks, `task --summary <name>` for details
+- Use `task` as the default interface for local tooling and verification so project-local caches under `.cache/` are used.
 - `task test` — runs with race detection, shuffle, and 10x count
-- `task check` — lint + build + test; run after any code change
+- `task check` — CI-equivalent local verification (`lint` + `build:check` + `test` + `tidy`); run it before push or when final validation is needed
 - Never edit `go.mod` or `go.sum` manually; use `go get`, `go mod tidy`, etc.
-- `go test -run TestName ./path/to/pkg` to run a single test
-- Prefer `task` to ensure project-local cache paths (`.cache/`) are used; see [ADR-004](docs/adr/004-local-tool-cache.md)
+- Use `go test -run TestName ./path/to/pkg` only for focused runs; if you bypass `task`, preserve equivalent cache settings
 
 ## Git Conventions
 
@@ -19,7 +19,6 @@
 
 - Keep this file limited to always-on repository rules.
 - Treat files under `docs/` as opt-in reference material; do not read them by default.
-- Read `docs/coding.md`, `docs/testing.md`, or `docs/tooling.md` only when the user explicitly asks or the task points to them.
-- Read `docs/review.md` only for code review or when the user explicitly asks for broader review conventions.
+- Read `docs/coding.md`, `docs/testing.md`, or `docs/tooling.md` only when the task needs repository-specific coding, testing, or tooling rules.
+- Read `docs/review.md` only for code review tasks or when broader review conventions are explicitly requested.
 - Read `docs/adr/` only when historical rationale matters.
-- Read `docs/plans/` only when implementing or updating an approved design or plan.

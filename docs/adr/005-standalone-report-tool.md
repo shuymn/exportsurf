@@ -6,7 +6,7 @@
 
 - `exportsurf` は `go/packages` + `go/types` ベースの standalone CLI として実装する
 - `go vet -vettool` や `unitchecker` は正本にしない
-- 出力は diagnostic ではなく candidate report とし、JSON contract は最終的に `symbol`, `kind`, `defined_in`, `internal_ref_count`, `external_ref_pkg_count`, `external_ref_examples`, `confidence`, `reasons` を中心に拡張する
+- 出力は diagnostic ではなく candidate report とし、JSON contract は `symbol`, `kind`, `src`, `internal_ref_count`, `confidence`, `reasons` を持つ
 - MVP では exported package-level の `func`, `type`, `var`, `const` のみを対象にする
 - methods, fields, explain, Markdown/SARIF, `multichecker` adapter は後続テーマに分離する
 - suppress は inline annotation ではなく baseline と config 方式で扱う前提にする

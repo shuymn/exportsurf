@@ -16,7 +16,7 @@ Exported identifier を「unused error」ではなく「unexport 候補レポー
 ## Key Tech Decisions
 - symbol ごとに internal/external reference を集計する
 - `scan` の正本は diagnostic ではなく candidate report とする
-- candidate report は `symbol`, `kind`, `defined_in`, `internal_ref_count`, `external_ref_pkg_count`, `external_ref_examples`, `confidence`, `reasons` を中心に持つ
+- candidate report は `symbol`, `kind`, `src`, `internal_ref_count`, `confidence`, `reasons` を中心に持つ
 - external test 参照は config の `treat_tests_as_external` を既定値とし、CLI flag で追加有効化できる
 - `package main` / `cmd/**` / generated / test runner entrypoint は除外または low confidence に落とし、report に理由を残せる形にする
 - baseline は accepted candidates の保存形式として使う
