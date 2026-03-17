@@ -11,11 +11,11 @@ import (
 )
 
 type File struct {
-	Exclude ExcludeConfig `yaml:"exclude"`
+	Exclude excludeConfig `yaml:"exclude"`
 	Rules   RulesConfig   `yaml:"rules"`
 }
 
-type ExcludeConfig struct {
+type excludeConfig struct {
 	Packages []string `yaml:"packages"`
 	Symbols  []string `yaml:"symbols"`
 }

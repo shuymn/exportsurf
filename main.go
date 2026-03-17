@@ -78,15 +78,17 @@ func executeScan(cmd *cli, stdout io.Writer) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	candidates, err := scan.Run(scan.Options{
-		Patterns:             patterns,
-		WorkingDir:           cwd,
-		TreatTestsAsExternal: cmd.TreatTestsAsExternal || fileCfg.Rules.TreatTestsAsExternal,
-		ExcludePackages:      fileCfg.Exclude.Packages,
-		ExcludeSymbols:       fileCfg.Exclude.Symbols,
-		Rules:                resolveRules(fileCfg.Rules),
-		LowConfidence:        resolveLowConfidence(fileCfg.Rules.MarkLowConfidence),
-	})
+	opts := newScanOptions(
+		patterns,
+		cwd,
+		cmd.TreatTestsAsExternal || fileCfg.Rules.TreatTestsAsExternal,
+		fileCfg.Exclude.Packages,
+		fileCfg.Exclude.Symbols,
+		resolveRules(fileCfg.Rules),
+		resolveLowConfidence(fileCfg.Rules.MarkLowConfidence),
+	)
+
+	candidates, err := scan.Run(opts)
 	if err != nil {
 		return err
 	}
@@ -107,30 +109,50 @@ func executeScan(cmd *cli, stdout io.Writer) error {
 	return nil
 }
 
+func newScanOptions(
+	patterns []string,
+	workingDir string,
+	treatTestsAsExternal bool,
+	excludePackages []string,
+	excludeSymbols []string,
+	rules scan.RulesFlags,
+	lowConfidence scan.LowConfidenceFlags,
+) scan.Options {
+	return scan.NewOptions(
+		patterns,
+		workingDir,
+		treatTestsAsExternal,
+		excludePackages,
+		excludeSymbols,
+		rules,
+		lowConfidence,
+	)
+}
+
 func resolveRules(cfg config.RulesConfig) scan.RulesFlags {
-	return scan.RulesFlags{
-		Funcs:   boolOrTrue(cfg.IncludeFuncs),
-		Types:   boolOrTrue(cfg.IncludeTypes),
-		Vars:    boolOrTrue(cfg.IncludeVars),
-		Consts:  boolOrTrue(cfg.IncludeConsts),
-		Methods: boolOrTrue(cfg.IncludeMethods),
-		Fields:  boolOrTrue(cfg.IncludeFields),
-	}
+	return scan.NewRulesFlags(
+		boolOrTrue(cfg.IncludeFuncs),
+		boolOrTrue(cfg.IncludeTypes),
+		boolOrTrue(cfg.IncludeVars),
+		boolOrTrue(cfg.IncludeConsts),
+		boolOrTrue(cfg.IncludeMethods),
+		boolOrTrue(cfg.IncludeFields),
+	)
 }
 
 func resolveLowConfidence(cfg config.MarkLowConfidence) scan.LowConfidenceFlags {
-	return scan.LowConfidenceFlags{
-		PackageMain:           boolOrTrue(cfg.PackageMain),
-		PackageUnderCmd:       boolOrTrue(cfg.PackageUnderCmd),
-		GeneratedFile:         boolOrTrue(cfg.GeneratedFile),
-		ReflectUsage:          boolOrTrue(cfg.ReflectUsage),
-		PluginUsage:           boolOrTrue(cfg.PluginUsage),
-		CgoExport:             boolOrTrue(cfg.CgoExport),
-		Linkname:              boolOrTrue(cfg.Linkname),
-		InterfaceSatisfaction: boolOrTrue(cfg.InterfaceSatisfaction),
-		EmbeddedField:         boolOrTrue(cfg.EmbeddedField),
-		SerializationTag:      boolOrTrue(cfg.SerializationTag),
-	}
+	return scan.NewLowConfidenceFlags(
+		boolOrTrue(cfg.PackageMain),
+		boolOrTrue(cfg.PackageUnderCmd),
+		boolOrTrue(cfg.GeneratedFile),
+		boolOrTrue(cfg.ReflectUsage),
+		boolOrTrue(cfg.PluginUsage),
+		boolOrTrue(cfg.CgoExport),
+		boolOrTrue(cfg.Linkname),
+		boolOrTrue(cfg.InterfaceSatisfaction),
+		boolOrTrue(cfg.EmbeddedField),
+		boolOrTrue(cfg.SerializationTag),
+	)
 }
 
 func boolOrTrue(p *bool) bool {

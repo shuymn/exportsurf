@@ -104,12 +104,12 @@ func candidateToSARIFResult(c Candidate) sarifResult {
 		level = "note"
 	}
 
-	file, line := parseSrc(c.Src)
+	file, line := parseSrc(c.src)
 
 	return sarifResult{
 		RuleID:  ruleID,
 		Level:   level,
-		Message: sarifMessage{Text: fmt.Sprintf("%s (%s) has no external references", c.Symbol, c.Kind)},
+		Message: sarifMessage{Text: fmt.Sprintf("%s (%s) has no external references", c.Symbol, c.kind)},
 		Locations: []sarifLocation{
 			{
 				PhysicalLocation: sarifPhysicalLocation{

@@ -20,35 +20,92 @@ import (
 )
 
 type LowConfidenceFlags struct {
-	PackageMain           bool
-	PackageUnderCmd       bool
-	GeneratedFile         bool
-	ReflectUsage          bool
-	PluginUsage           bool
-	CgoExport             bool
-	Linkname              bool
-	InterfaceSatisfaction bool
-	EmbeddedField         bool
-	SerializationTag      bool
+	packageMain           bool
+	packageUnderCmd       bool
+	generatedFile         bool
+	reflectUsage          bool
+	pluginUsage           bool
+	cgoExport             bool
+	linkname              bool
+	interfaceSatisfaction bool
+	embeddedField         bool
+	serializationTag      bool
 }
 
 type RulesFlags struct {
-	Funcs   bool
-	Types   bool
-	Vars    bool
-	Consts  bool
-	Methods bool
-	Fields  bool
+	funcs   bool
+	types   bool
+	vars    bool
+	consts  bool
+	methods bool
+	fields  bool
 }
 
 type Options struct {
-	Patterns             []string
-	WorkingDir           string
-	TreatTestsAsExternal bool
-	ExcludePackages      []string
-	ExcludeSymbols       []string
-	Rules                RulesFlags
-	LowConfidence        LowConfidenceFlags
+	patterns             []string
+	workingDir           string
+	treatTestsAsExternal bool
+	excludePackages      []string
+	excludeSymbols       []string
+	rules                RulesFlags
+	lowConfidence        LowConfidenceFlags
+}
+
+func NewLowConfidenceFlags(
+	packageMain bool,
+	packageUnderCmd bool,
+	generatedFile bool,
+	reflectUsage bool,
+	pluginUsage bool,
+	cgoExport bool,
+	linkname bool,
+	interfaceSatisfaction bool,
+	embeddedField bool,
+	serializationTag bool,
+) LowConfidenceFlags {
+	return LowConfidenceFlags{
+		packageMain:           packageMain,
+		packageUnderCmd:       packageUnderCmd,
+		generatedFile:         generatedFile,
+		reflectUsage:          reflectUsage,
+		pluginUsage:           pluginUsage,
+		cgoExport:             cgoExport,
+		linkname:              linkname,
+		interfaceSatisfaction: interfaceSatisfaction,
+		embeddedField:         embeddedField,
+		serializationTag:      serializationTag,
+	}
+}
+
+func NewRulesFlags(funcs, types, vars, consts, methods, fields bool) RulesFlags {
+	return RulesFlags{
+		funcs:   funcs,
+		types:   types,
+		vars:    vars,
+		consts:  consts,
+		methods: methods,
+		fields:  fields,
+	}
+}
+
+func NewOptions(
+	patterns []string,
+	workingDir string,
+	treatTestsAsExternal bool,
+	excludePackages []string,
+	excludeSymbols []string,
+	rules RulesFlags,
+	lowConfidence LowConfidenceFlags,
+) Options {
+	return Options{
+		patterns:             slices.Clone(patterns),
+		workingDir:           workingDir,
+		treatTestsAsExternal: treatTestsAsExternal,
+		excludePackages:      slices.Clone(excludePackages),
+		excludeSymbols:       slices.Clone(excludeSymbols),
+		rules:                rules,
+		lowConfidence:        lowConfidence,
+	}
 }
 
 type candidateState struct {
@@ -63,7 +120,7 @@ type fileInfo struct {
 }
 
 func Run(opts Options) ([]report.Candidate, error) {
-	if len(opts.Patterns) == 0 {
+	if len(opts.patterns) == 0 {
 		return nil, errors.New("at least one pattern is required")
 	}
 
@@ -74,11 +131,11 @@ func Run(opts Options) ([]report.Candidate, error) {
 			packages.NeedSyntax |
 			packages.NeedTypes |
 			packages.NeedTypesInfo,
-		Dir:   opts.WorkingDir,
+		Dir:   opts.workingDir,
 		Tests: true,
 	}
 
-	pkgs, err := packages.Load(cfg, opts.Patterns...)
+	pkgs, err := packages.Load(cfg, opts.patterns...)
 	if err != nil {
 		return nil, fmt.Errorf("load packages: %w", err)
 	}
@@ -87,24 +144,25 @@ func Run(opts Options) ([]report.Candidate, error) {
 	}
 
 	var ifaces []namedInterface
-	if opts.Rules.Methods {
+	if opts.rules.methods {
 		ifaces = collectInterfaces(pkgs)
 	}
 
 	var fkeys *fieldKeyMap
-	if opts.Rules.Fields {
-		fkeys = buildFieldKeyMap(pkgs)
+	if opts.rules.fields {
+		builtFieldKeys := buildFieldKeyMap(pkgs)
+		fkeys = &builtFieldKeys
 	}
 
-	states := collectDefinitions(pkgs, opts.WorkingDir, ifaces, opts.LowConfidence, opts.Rules)
+	states := collectDefinitions(pkgs, opts.workingDir, ifaces, opts.lowConfidence, opts.rules)
 
-	if opts.Rules.Fields {
-		collectFieldDefs(pkgs, opts.WorkingDir, states, fkeys, opts.LowConfidence)
+	if opts.rules.fields {
+		collectFieldDefs(pkgs, opts.workingDir, states, fkeys, opts.lowConfidence)
 	}
 
-	applyConfidencePatterns(states, detectConfidencePatterns(pkgs, opts.LowConfidence))
+	applyConfidencePatterns(states, detectConfidencePatterns(pkgs, opts.lowConfidence))
 
-	collectUses(pkgs, states, opts.TreatTestsAsExternal, fkeys)
+	collectUses(pkgs, states, opts.treatTestsAsExternal, fkeys)
 
 	results := make([]report.Candidate, 0, len(states))
 	for _, key := range slices.Sorted(maps.Keys(states)) {
@@ -115,7 +173,7 @@ func Run(opts Options) ([]report.Candidate, error) {
 		results = append(results, state.candidate)
 	}
 
-	return filterCandidates(results, opts.ExcludePackages, opts.ExcludeSymbols), nil
+	return filterCandidates(results, opts.excludePackages, opts.excludeSymbols), nil
 }
 
 func collectDefinitions(
@@ -168,7 +226,7 @@ func classifyDef(
 		}
 		return objectKey(obj), nil, true
 	}
-	if rules.Methods && len(ifaces) > 0 {
+	if rules.methods && len(ifaces) > 0 {
 		if key, ok := methodCandidateKey(obj); ok {
 			return key, ifaces, true
 		}
@@ -179,13 +237,13 @@ func classifyDef(
 func isKindEnabled(obj types.Object, rules RulesFlags) bool {
 	switch obj.(type) {
 	case *types.Func:
-		return rules.Funcs
+		return rules.funcs
 	case *types.TypeName:
-		return rules.Types
+		return rules.types
 	case *types.Const:
-		return rules.Consts
+		return rules.consts
 	case *types.Var:
-		return rules.Vars
+		return rules.vars
 	default:
 		return false
 	}
@@ -207,7 +265,7 @@ func newCandidate(
 	if fn, ok := obj.(*types.Func); ok {
 		if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
 			kind = "method"
-			if flags.InterfaceSatisfaction {
+			if flags.interfaceSatisfaction {
 				reasons = append(
 					reasons,
 					methodInterfaceReasons(sig.Recv(), fn.Name(), ifaces)...,
@@ -221,13 +279,13 @@ func newCandidate(
 
 func candidateReasons(pkg *packages.Package, meta fileInfo, flags LowConfidenceFlags) []string {
 	reasons := []string{}
-	if flags.PackageMain && pkg.Name == "main" {
+	if flags.packageMain && pkg.Name == "main" {
 		reasons = append(reasons, report.ReasonPackageMain)
 	}
-	if flags.PackageUnderCmd && packageUnderCmd(pkg.PkgPath) {
+	if flags.packageUnderCmd && packageUnderCmd(pkg.PkgPath) {
 		reasons = append(reasons, report.ReasonPackageUnderCmd)
 	}
-	if flags.GeneratedFile && meta.generated {
+	if flags.generatedFile && meta.generated {
 		reasons = append(reasons, report.ReasonGeneratedFile)
 	}
 	return reasons
@@ -657,8 +715,8 @@ func (fk *fieldKeyMap) resolve(v *types.Var) (fieldMeta, bool) {
 	return fieldMeta{}, false
 }
 
-func buildFieldKeyMap(pkgs []*packages.Package) *fieldKeyMap {
-	fk := &fieldKeyMap{
+func buildFieldKeyMap(pkgs []*packages.Package) fieldKeyMap {
+	fk := fieldKeyMap{
 		byPtr:  map[*types.Var]fieldMeta{},
 		byName: map[string][]fieldMeta{},
 	}
@@ -666,7 +724,7 @@ func buildFieldKeyMap(pkgs []*packages.Package) *fieldKeyMap {
 		if !isDefinitionPackage(pkg) {
 			continue
 		}
-		collectStructFields(pkg.Types.Scope(), fk)
+		collectStructFields(pkg.Types.Scope(), &fk)
 	}
 	return fk
 }
@@ -760,22 +818,15 @@ func buildCandidate(symbol, kind, src string, reasons []string) report.Candidate
 		confidence = report.ConfidenceLow
 	}
 
-	return report.Candidate{
-		Symbol:           symbol,
-		Kind:             kind,
-		Src:              src,
-		InternalRefCount: 0,
-		Confidence:       confidence,
-		Reasons:          reasons,
-	}
+	return report.NewCandidate(symbol, kind, src, 0, confidence, reasons)
 }
 
 func fieldReasons(fm fieldMeta, flags LowConfidenceFlags) []string {
 	var reasons []string
-	if flags.EmbeddedField && fm.embedded {
+	if flags.embeddedField && fm.embedded {
 		reasons = append(reasons, report.ReasonEmbeddedField)
 	}
-	if flags.SerializationTag && hasSerializationTag(fm.tag) {
+	if flags.serializationTag && hasSerializationTag(fm.tag) {
 		reasons = append(reasons, report.ReasonSerializationTag)
 	}
 	return reasons
@@ -812,7 +863,7 @@ func detectConfidencePatterns(pkgs []*packages.Package, flags LowConfidenceFlags
 		}
 	}
 
-	if flags.Linkname {
+	if flags.linkname {
 		for _, pkg := range pkgs {
 			detectLinknameTargets(pkg, patterns.linknameTargets)
 		}
@@ -822,13 +873,13 @@ func detectConfidencePatterns(pkgs []*packages.Package, flags LowConfidenceFlags
 }
 
 func detectDefPkgPatterns(pkg *packages.Package, flags LowConfidenceFlags, patterns *confidencePatterns) {
-	if flags.ReflectUsage {
+	if flags.reflectUsage {
 		detectReflectTypes(pkg, patterns.reflectTypes)
 	}
-	if flags.PluginUsage && hasPluginUsage(pkg) {
+	if flags.pluginUsage && hasPluginUsage(pkg) {
 		patterns.pluginPackages[pkg.PkgPath] = true
 	}
-	if flags.CgoExport {
+	if flags.cgoExport {
 		detectCgoExports(pkg, patterns.cgoExports)
 	}
 }

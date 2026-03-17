@@ -18,28 +18,30 @@ func TestRunCurrentModuleDoesNotPanic(t *testing.T) {
 		}
 	}()
 
-	if _, err := Run(Options{
-		Patterns:   []string{"./..."},
-		WorkingDir: repoRoot,
-		Rules: RulesFlags{
-			Funcs: true, Types: true, Vars: true, Consts: true,
-			Methods: true, Fields: true,
-		},
-	}); err != nil {
+	if _, err := Run(NewOptions(
+		[]string{"./..."},
+		repoRoot,
+		false,
+		nil,
+		nil,
+		NewRulesFlags(true, true, true, true, true, true),
+		LowConfidenceFlags{},
+	)); err != nil {
 		t.Fatalf("Run returned error for current module: %v", err)
 	}
 }
 
 func TestRunIsDeterministicAcrossConcurrentCalls(t *testing.T) {
 	repoRoot := repoRoot(t)
-	opts := Options{
-		Patterns:   []string{"./testdata/fixtures/basic/..."},
-		WorkingDir: repoRoot,
-		Rules: RulesFlags{
-			Funcs: true, Types: true, Vars: true, Consts: true,
-			Methods: true, Fields: true,
-		},
-	}
+	opts := NewOptions(
+		[]string{"./testdata/fixtures/basic/..."},
+		repoRoot,
+		false,
+		nil,
+		nil,
+		NewRulesFlags(true, true, true, true, true, true),
+		LowConfidenceFlags{},
+	)
 
 	want, err := Run(opts)
 	if err != nil {

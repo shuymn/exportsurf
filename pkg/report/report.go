@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -29,11 +30,49 @@ func SatisfiesInterfaceReason(iface string) string {
 
 type Candidate struct {
 	Symbol           string   `json:"symbol"`
+	InternalRefCount int      `json:"internal_ref_count"`
+	Confidence       string   `json:"confidence"`
+	Reasons          []string `json:"reasons"`
+	kind             string
+	src              string
+}
+
+type candidateJSON struct {
+	Symbol           string   `json:"symbol"`
 	Kind             string   `json:"kind"`
 	Src              string   `json:"src"`
 	InternalRefCount int      `json:"internal_ref_count"`
 	Confidence       string   `json:"confidence"`
 	Reasons          []string `json:"reasons"`
+}
+
+func NewCandidate(
+	symbol string,
+	kind string,
+	src string,
+	internalRefCount int,
+	confidence string,
+	reasons []string,
+) Candidate {
+	return Candidate{
+		Symbol:           symbol,
+		InternalRefCount: internalRefCount,
+		Confidence:       confidence,
+		Reasons:          slices.Clone(reasons),
+		kind:             kind,
+		src:              src,
+	}
+}
+
+func (c Candidate) MarshalJSON() ([]byte, error) {
+	return json.Marshal(candidateJSON{
+		Symbol:           c.Symbol,
+		Kind:             c.kind,
+		Src:              c.src,
+		InternalRefCount: c.InternalRefCount,
+		Confidence:       c.Confidence,
+		Reasons:          c.Reasons,
+	})
 }
 
 func WriteJSON(w io.Writer, candidates []Candidate) error {
@@ -54,9 +93,9 @@ func WriteText(w io.Writer, candidates []Candidate) error {
 }
 
 func formatTextLine(c Candidate) string {
-	src := sanitizeTextField(c.Src)
+	src := sanitizeTextField(c.src)
 	name := sanitizeTextField(shortName(c.Symbol))
-	kind := sanitizeTextField(c.Kind)
+	kind := sanitizeTextField(c.kind)
 	if c.Confidence == ConfidenceLow && len(c.Reasons) > 0 {
 		reasons := make([]string, 0, len(c.Reasons))
 		for _, reason := range c.Reasons {

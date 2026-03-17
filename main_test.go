@@ -151,14 +151,14 @@ func TestRunTextOutput(t *testing.T) {
 	t.Run("control characters are escaped", func(t *testing.T) {
 		var stdout bytes.Buffer
 		err := writeOutput(&stdout, []report.Candidate{
-			{
-				Symbol:           "example.com/adversarial/lib.Type\nName",
-				Kind:             "type",
-				Src:              "lib/\x1b[31mowned.go:3",
-				InternalRefCount: 1,
-				Confidence:       report.ConfidenceLow,
-				Reasons:          []string{"bad\tinput", "line\nbreak"},
-			},
+			report.NewCandidate(
+				"example.com/adversarial/lib.Type\nName",
+				"type",
+				"lib/\x1b[31mowned.go:3",
+				1,
+				report.ConfidenceLow,
+				[]string{"bad\tinput", "line\nbreak"},
+			),
 		}, false, false)
 		if err != nil {
 			t.Fatalf("writeOutput failed: %v", err)
