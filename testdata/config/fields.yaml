@@ -1,1 +1,2 @@
-include_fields: true
+include:
+  fields: true

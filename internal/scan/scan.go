@@ -19,6 +19,19 @@ import (
 	"github.com/shuymn/exportsurf/pkg/report"
 )
 
+type LowConfidenceFlags struct {
+	PackageMain           bool
+	PackageUnderCmd       bool
+	GeneratedFile         bool
+	ReflectUsage          bool
+	PluginUsage           bool
+	CgoExport             bool
+	Linkname              bool
+	InterfaceSatisfaction bool
+	EmbeddedField         bool
+	SerializationTag      bool
+}
+
 type Options struct {
 	Patterns             []string
 	WorkingDir           string
@@ -27,6 +40,7 @@ type Options struct {
 	ExcludeSymbols       []string
 	IncludeMethods       bool
 	IncludeFields        bool
+	LowConfidence        LowConfidenceFlags
 }
 
 type candidateState struct {
@@ -74,11 +88,13 @@ func Run(opts Options) ([]report.Candidate, error) {
 		fkeys = buildFieldKeyMap(pkgs)
 	}
 
-	states := collectDefinitions(pkgs, opts.WorkingDir, ifaces)
+	states := collectDefinitions(pkgs, opts.WorkingDir, ifaces, opts.LowConfidence)
 
 	if opts.IncludeFields {
-		collectFieldDefs(pkgs, opts.WorkingDir, states, fkeys)
+		collectFieldDefs(pkgs, opts.WorkingDir, states, fkeys, opts.LowConfidence)
 	}
+
+	applyConfidencePatterns(states, detectConfidencePatterns(pkgs, opts.LowConfidence))
 
 	collectUses(pkgs, states, opts.TreatTestsAsExternal, fkeys)
 
@@ -98,6 +114,7 @@ func collectDefinitions(
 	pkgs []*packages.Package,
 	workingDir string,
 	ifaces []namedInterface,
+	flags LowConfidenceFlags,
 ) map[string]*candidateState {
 	states := map[string]*candidateState{}
 
@@ -113,8 +130,11 @@ func collectDefinitions(
 				continue
 			}
 			if key, ifcs, ok := classifyDef(obj, meta, ifaces); ok {
+				c := newCandidate(
+					key, pkg, obj, meta, pkg.Fset, workingDir, ifcs, flags,
+				)
 				states[key] = &candidateState{
-					candidate:      newCandidate(key, pkg, obj, meta, pkg.Fset, workingDir, ifcs),
+					candidate:      c,
 					externalRefPkg: map[string]struct{}{},
 				}
 			}
@@ -151,32 +171,35 @@ func newCandidate(
 	fset *token.FileSet,
 	workingDir string,
 	ifaces []namedInterface,
+	flags LowConfidenceFlags,
 ) report.Candidate {
 	kind := objectKind(obj)
-	reasons := candidateReasons(pkg, meta)
+	reasons := candidateReasons(pkg, meta, flags)
 
 	if fn, ok := obj.(*types.Func); ok {
 		if sig, ok := fn.Type().(*types.Signature); ok && sig.Recv() != nil {
 			kind = "method"
-			reasons = append(
-				reasons,
-				methodInterfaceReasons(sig.Recv(), fn.Name(), ifaces)...,
-			)
+			if flags.InterfaceSatisfaction {
+				reasons = append(
+					reasons,
+					methodInterfaceReasons(sig.Recv(), fn.Name(), ifaces)...,
+				)
+			}
 		}
 	}
 
 	return buildCandidate(key, kind, positionString(fset, obj.Pos(), workingDir), reasons)
 }
 
-func candidateReasons(pkg *packages.Package, meta fileInfo) []string {
+func candidateReasons(pkg *packages.Package, meta fileInfo, flags LowConfidenceFlags) []string {
 	reasons := []string{}
-	if pkg.Name == "main" {
+	if flags.PackageMain && pkg.Name == "main" {
 		reasons = append(reasons, "package main")
 	}
-	if packageUnderCmd(pkg.PkgPath) {
+	if flags.PackageUnderCmd && packageUnderCmd(pkg.PkgPath) {
 		reasons = append(reasons, "package under cmd")
 	}
-	if meta.generated {
+	if flags.GeneratedFile && meta.generated {
 		reasons = append(reasons, "generated file")
 	}
 	return reasons
@@ -653,6 +676,7 @@ func collectFieldDefs(
 	workingDir string,
 	states map[string]*candidateState,
 	fkeys *fieldKeyMap,
+	flags LowConfidenceFlags,
 ) {
 	type defPkg struct {
 		pkg   *packages.Package
@@ -681,7 +705,7 @@ func collectFieldDefs(
 			continue
 		}
 		states[fm.key] = &candidateState{
-			candidate:      newFieldCandidate(fm, dp.pkg, field, meta, dp.pkg.Fset, workingDir),
+			candidate:      newFieldCandidate(fm, dp.pkg, field, meta, dp.pkg.Fset, workingDir, flags),
 			externalRefPkg: map[string]struct{}{},
 		}
 	}
@@ -694,9 +718,10 @@ func newFieldCandidate(
 	meta fileInfo,
 	fset *token.FileSet,
 	workingDir string,
+	flags LowConfidenceFlags,
 ) report.Candidate {
-	reasons := candidateReasons(pkg, meta)
-	reasons = append(reasons, fieldReasons(fm)...)
+	reasons := candidateReasons(pkg, meta, flags)
+	reasons = append(reasons, fieldReasons(fm, flags)...)
 
 	return buildCandidate(fm.key, "field", positionString(fset, field.Pos(), workingDir), reasons)
 }
@@ -719,12 +744,12 @@ func buildCandidate(symbol, kind, definedIn string, reasons []string) report.Can
 	}
 }
 
-func fieldReasons(fm fieldMeta) []string {
+func fieldReasons(fm fieldMeta, flags LowConfidenceFlags) []string {
 	var reasons []string
-	if fm.embedded {
+	if flags.EmbeddedField && fm.embedded {
 		reasons = append(reasons, "embedded field")
 	}
-	if hasSerializationTag(fm.tag) {
+	if flags.SerializationTag && hasSerializationTag(fm.tag) {
 		reasons = append(reasons, "has serialization tag")
 	}
 	return reasons
@@ -738,6 +763,208 @@ func hasSerializationTag(tag string) bool {
 		}
 	}
 	return false
+}
+
+type confidencePatterns struct {
+	reflectTypes    map[string]bool
+	pluginPackages  map[string]bool
+	cgoExports      map[string]bool
+	linknameTargets map[string]bool
+}
+
+func detectConfidencePatterns(pkgs []*packages.Package, flags LowConfidenceFlags) confidencePatterns {
+	patterns := confidencePatterns{
+		reflectTypes:    map[string]bool{},
+		pluginPackages:  map[string]bool{},
+		cgoExports:      map[string]bool{},
+		linknameTargets: map[string]bool{},
+	}
+
+	for _, pkg := range pkgs {
+		if isDefinitionPackage(pkg) {
+			detectDefPkgPatterns(pkg, flags, &patterns)
+		}
+	}
+
+	if flags.Linkname {
+		for _, pkg := range pkgs {
+			detectLinknameTargets(pkg, patterns.linknameTargets)
+		}
+	}
+
+	return patterns
+}
+
+func detectDefPkgPatterns(pkg *packages.Package, flags LowConfidenceFlags, patterns *confidencePatterns) {
+	if flags.ReflectUsage {
+		detectReflectTypes(pkg, patterns.reflectTypes)
+	}
+	if flags.PluginUsage && hasPluginUsage(pkg) {
+		patterns.pluginPackages[pkg.PkgPath] = true
+	}
+	if flags.CgoExport {
+		detectCgoExports(pkg, patterns.cgoExports)
+	}
+}
+
+func applyConfidencePatterns(states map[string]*candidateState, patterns confidencePatterns) {
+	for key, state := range states {
+		var reasons []string
+
+		if patterns.reflectTypes[key] {
+			reasons = append(reasons, "reflect usage")
+		}
+		if patterns.pluginPackages[candidatePackagePath(key)] {
+			reasons = append(reasons, "plugin usage")
+		}
+		if patterns.cgoExports[key] {
+			reasons = append(reasons, "cgo export")
+		}
+		if patterns.linknameTargets[key] {
+			reasons = append(reasons, "go:linkname")
+		}
+
+		if len(reasons) > 0 {
+			state.candidate.Reasons = append(state.candidate.Reasons, reasons...)
+			state.candidate.Confidence = report.ConfidenceLow
+		}
+	}
+}
+
+func detectReflectTypes(pkg *packages.Package, dest map[string]bool) {
+	for _, file := range pkg.Syntax {
+		ast.Inspect(file, func(n ast.Node) bool {
+			if key := reflectCallTypeKey(pkg, n); key != "" {
+				dest[key] = true
+			}
+			return true
+		})
+	}
+}
+
+func reflectCallTypeKey(pkg *packages.Package, n ast.Node) string {
+	call, ok := n.(*ast.CallExpr)
+	if !ok || len(call.Args) == 0 {
+		return ""
+	}
+	if !isReflectTypeOrValueOf(pkg, call) {
+		return ""
+	}
+	argType := pkg.TypesInfo.Types[call.Args[0]]
+	if !argType.IsValue() {
+		return ""
+	}
+	return namedTypeKey(argType.Type, pkg.Types)
+}
+
+func isReflectTypeOrValueOf(pkg *packages.Package, call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	if sel.Sel.Name != "TypeOf" && sel.Sel.Name != "ValueOf" {
+		return false
+	}
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	pkgName, ok := pkg.TypesInfo.Uses[ident].(*types.PkgName)
+	return ok && pkgName.Imported().Path() == "reflect"
+}
+
+func namedTypeKey(t types.Type, defPkg *types.Package) string {
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	named, ok := t.(*types.Named)
+	if !ok {
+		return ""
+	}
+	obj := named.Obj()
+	if obj.Pkg() == nil || obj.Pkg() != defPkg {
+		return ""
+	}
+	return obj.Pkg().Path() + "." + obj.Name()
+}
+
+func hasPluginUsage(pkg *packages.Package) bool {
+	if !importsPackage(pkg, "plugin") {
+		return false
+	}
+	for _, obj := range pkg.TypesInfo.Uses {
+		fn, ok := obj.(*types.Func)
+		if !ok {
+			continue
+		}
+		if fn.Pkg() != nil && fn.Pkg().Path() == "plugin" && fn.Name() == "Open" {
+			return true
+		}
+	}
+	return false
+}
+
+func importsPackage(pkg *packages.Package, path string) bool {
+	for _, imp := range pkg.Types.Imports() {
+		if imp.Path() == path {
+			return true
+		}
+	}
+	return false
+}
+
+func detectCgoExports(pkg *packages.Package, dest map[string]bool) {
+	for _, file := range pkg.Syntax {
+		for _, cg := range file.Comments {
+			for _, comment := range cg.List {
+				if name, ok := parseCgoExport(comment.Text); ok {
+					dest[pkg.PkgPath+"."+name] = true
+				}
+			}
+		}
+	}
+}
+
+func parseCgoExport(text string) (string, bool) {
+	after, found := strings.CutPrefix(text, "//export ")
+	if !found {
+		return "", false
+	}
+	name := strings.TrimSpace(after)
+	if name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+func detectLinknameTargets(pkg *packages.Package, dest map[string]bool) {
+	for _, file := range pkg.Syntax {
+		for _, cg := range file.Comments {
+			for _, comment := range cg.List {
+				for _, target := range parseGoLinkname(comment.Text, pkg.PkgPath) {
+					dest[target] = true
+				}
+			}
+		}
+	}
+}
+
+func parseGoLinkname(text, pkgPath string) []string {
+	after, found := strings.CutPrefix(text, "//go:linkname ")
+	if !found {
+		return nil
+	}
+
+	parts := strings.Fields(after)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	targets := []string{pkgPath + "." + parts[0]}
+	if len(parts) >= 2 {
+		targets = append(targets, parts[1])
+	}
+	return targets
 }
 
 func methodInterfaceReasons(

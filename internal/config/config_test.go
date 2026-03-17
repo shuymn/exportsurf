@@ -18,7 +18,7 @@ func TestLoad(t *testing.T) {
 			t.Fatalf("Load returned error for empty file: %v", err)
 		}
 
-		if len(got.ExcludePackages) != 0 || len(got.ExcludeSymbols) != 0 || got.TreatTestsAsExternal {
+		if len(got.Exclude.Packages) != 0 || len(got.Exclude.Symbols) != 0 || got.TreatTestsAsExternal {
 			t.Fatalf("Load returned non-zero config for empty file: %#v", got)
 		}
 	})

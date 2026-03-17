@@ -57,10 +57,11 @@ func runScan(args []string, stdout io.Writer) error {
 		Patterns:             cfg.patterns,
 		WorkingDir:           cwd,
 		TreatTestsAsExternal: cfg.treatTestsAsExternal || fileCfg.TreatTestsAsExternal,
-		ExcludePackages:      fileCfg.ExcludePackages,
-		ExcludeSymbols:       fileCfg.ExcludeSymbols,
-		IncludeMethods:       fileCfg.IncludeMethods,
-		IncludeFields:        fileCfg.IncludeFields,
+		ExcludePackages:      fileCfg.Exclude.Packages,
+		ExcludeSymbols:       fileCfg.Exclude.Symbols,
+		IncludeMethods:       fileCfg.Include.Methods,
+		IncludeFields:        fileCfg.Include.Fields,
+		LowConfidence:        resolveLowConfidence(fileCfg.LowConfidence),
 	})
 	if err != nil {
 		return err
@@ -80,6 +81,28 @@ func runScan(args []string, stdout io.Writer) error {
 	}
 
 	return nil
+}
+
+func resolveLowConfidence(cfg config.LowConfidenceConfig) scan.LowConfidenceFlags {
+	return scan.LowConfidenceFlags{
+		PackageMain:           boolOrTrue(cfg.PackageMain),
+		PackageUnderCmd:       boolOrTrue(cfg.PackageUnderCmd),
+		GeneratedFile:         boolOrTrue(cfg.GeneratedFile),
+		ReflectUsage:          boolOrTrue(cfg.ReflectUsage),
+		PluginUsage:           boolOrTrue(cfg.PluginUsage),
+		CgoExport:             boolOrTrue(cfg.CgoExport),
+		Linkname:              boolOrTrue(cfg.Linkname),
+		InterfaceSatisfaction: boolOrTrue(cfg.InterfaceSatisfaction),
+		EmbeddedField:         boolOrTrue(cfg.EmbeddedField),
+		SerializationTag:      boolOrTrue(cfg.SerializationTag),
+	}
+}
+
+func boolOrTrue(p *bool) bool {
+	if p == nil {
+		return true
+	}
+	return *p
 }
 
 func filterBaseline(

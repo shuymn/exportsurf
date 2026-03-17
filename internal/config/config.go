@@ -11,11 +11,33 @@ import (
 )
 
 type File struct {
-	ExcludePackages      []string `yaml:"exclude_packages"`
-	ExcludeSymbols       []string `yaml:"exclude_symbols"`
-	TreatTestsAsExternal bool     `yaml:"treat_tests_as_external"`
-	IncludeMethods       bool     `yaml:"include_methods"`
-	IncludeFields        bool     `yaml:"include_fields"`
+	Exclude              ExcludeConfig       `yaml:"exclude"`
+	Include              IncludeConfig       `yaml:"include"`
+	TreatTestsAsExternal bool                `yaml:"treat_tests_as_external"`
+	LowConfidence        LowConfidenceConfig `yaml:"low_confidence"`
+}
+
+type ExcludeConfig struct {
+	Packages []string `yaml:"packages"`
+	Symbols  []string `yaml:"symbols"`
+}
+
+type IncludeConfig struct {
+	Methods bool `yaml:"methods"`
+	Fields  bool `yaml:"fields"`
+}
+
+type LowConfidenceConfig struct {
+	PackageMain           *bool `yaml:"package_main"`
+	PackageUnderCmd       *bool `yaml:"package_under_cmd"`
+	GeneratedFile         *bool `yaml:"generated_file"`
+	ReflectUsage          *bool `yaml:"reflect_usage"`
+	PluginUsage           *bool `yaml:"plugin_usage"`
+	CgoExport             *bool `yaml:"cgo_export"`
+	Linkname              *bool `yaml:"linkname"`
+	InterfaceSatisfaction *bool `yaml:"interface_satisfaction"`
+	EmbeddedField         *bool `yaml:"embedded_field"`
+	SerializationTag      *bool `yaml:"serialization_tag"`
 }
 
 func Load(path string) (File, error) {
@@ -42,10 +64,10 @@ func Load(path string) (File, error) {
 }
 
 func validate(cfg File) error {
-	if err := validateList("exclude_packages", cfg.ExcludePackages); err != nil {
+	if err := validateList("exclude.packages", cfg.Exclude.Packages); err != nil {
 		return err
 	}
-	if err := validateList("exclude_symbols", cfg.ExcludeSymbols); err != nil {
+	if err := validateList("exclude.symbols", cfg.Exclude.Symbols); err != nil {
 		return err
 	}
 

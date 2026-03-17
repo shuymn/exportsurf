@@ -1,4 +1,5 @@
-exclude_packages:
-  - github.com/shuymn/exportsurf/testdata/fixtures/basic/cmd/tool
-exclude_symbols:
-  - github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedConst
+exclude:
+  packages:
+    - github.com/shuymn/exportsurf/testdata/fixtures/basic/cmd/tool
+  symbols:
+    - github.com/shuymn/exportsurf/testdata/fixtures/basic/lib.ExportedConst

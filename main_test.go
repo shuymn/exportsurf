@@ -556,6 +556,129 @@ func TestRunFailOnFindings(t *testing.T) {
 	})
 }
 
+func TestRunConfidenceScoring(t *testing.T) {
+	t.Run("default preserves package main reason", func(t *testing.T) {
+		got := runCandidateCLI(t, "scan", "./testdata/fixtures/confidence_main/...", "--json")
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/confidence_main.ExportedFromMain",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/confidence_main/main.go:3",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "low",
+				Reasons:             []string{"package main"},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected output\nwant: %#v\ngot: %#v", want, got)
+		}
+	})
+
+	t.Run("mark_main_low_confidence false removes package main reason", func(t *testing.T) {
+		got := runCandidateCLI(
+			t,
+			"scan",
+			"./testdata/fixtures/confidence_main/...",
+			"--config",
+			"./testdata/config/mark_main_false.yaml",
+			"--json",
+		)
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/confidence_main.ExportedFromMain",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/confidence_main/main.go:3",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected output\nwant: %#v\ngot: %#v", want, got)
+		}
+	})
+
+	t.Run("reflect cgo linkname patterns detected", func(t *testing.T) {
+		got := runCandidateCLI(t, "scan", "./testdata/fixtures/confidence/...", "--json")
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/confidence/lib.CgoExportedFunc",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/confidence/lib/lib.go:8",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "low",
+				Reasons:             []string{"cgo export"},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/confidence/lib.LinkedFunc",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/confidence/lib/linkname.go:6",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "low",
+				Reasons:             []string{"go:linkname"},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/confidence/lib.NormalFunc",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/confidence/lib/lib.go:10",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "high",
+				Reasons:             []string{},
+			},
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/confidence/lib.ReflectedType",
+				Kind:                "type",
+				DefinedIn:           "testdata/fixtures/confidence/lib/lib.go:5",
+				InternalRefCount:    2,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "low",
+				Reasons:             []string{"reflect usage"},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected output\nwant: %#v\ngot: %#v", want, got)
+		}
+	})
+
+	t.Run("plugin usage detected", func(t *testing.T) {
+		got := runCandidateCLI(t, "scan", "./testdata/fixtures/confidence_plugin/...", "--json")
+
+		want := []candidateReport{
+			{
+				Symbol:              "github.com/shuymn/exportsurf/testdata/fixtures/confidence_plugin/lib.ExportedFunc",
+				Kind:                "func",
+				DefinedIn:           "testdata/fixtures/confidence_plugin/lib/lib.go:5",
+				InternalRefCount:    1,
+				ExternalRefPkgCount: 0,
+				ExternalRefExamples: []string{},
+				Confidence:          "low",
+				Reasons:             []string{"plugin usage"},
+			},
+		}
+
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unexpected output\nwant: %#v\ngot: %#v", want, got)
+		}
+	})
+}
+
 func runCandidateCLI(t *testing.T, args ...string) []candidateReport {
 	t.Helper()
 

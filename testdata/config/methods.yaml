@@ -1,1 +1,2 @@
-include_methods: true
+include:
+  methods: true
