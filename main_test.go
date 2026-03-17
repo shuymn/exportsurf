@@ -171,6 +171,18 @@ func TestRunTextOutput(t *testing.T) {
 	})
 }
 
+func TestRunRejectsConflictingFormatFlagsWithoutStdout(t *testing.T) {
+	var stdout bytes.Buffer
+
+	err := run([]string{"./testdata/fixtures/basic/...", "--json", "--sarif"}, &stdout)
+	if err == nil {
+		t.Fatal("expected error for conflicting format flags")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout for conflicting format flags, got %q", stdout.String())
+	}
+}
+
 func TestRunBaselineContract(t *testing.T) {
 	t.Run("scan --baseline --json filters candidates", func(t *testing.T) {
 		got := runCandidateCLI(
