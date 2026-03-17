@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -53,15 +54,21 @@ func WriteText(w io.Writer, candidates []Candidate) error {
 }
 
 func formatTextLine(c Candidate) string {
-	name := shortName(c.Symbol)
+	src := sanitizeTextField(c.Src)
+	name := sanitizeTextField(shortName(c.Symbol))
+	kind := sanitizeTextField(c.Kind)
 	if c.Confidence == ConfidenceLow && len(c.Reasons) > 0 {
+		reasons := make([]string, 0, len(c.Reasons))
+		for _, reason := range c.Reasons {
+			reasons = append(reasons, sanitizeTextField(reason))
+		}
 		return fmt.Sprintf(
 			"%s: %s (%s) [low: %s]",
-			c.Src, name, c.Kind,
-			strings.Join(c.Reasons, ", "),
+			src, name, kind,
+			strings.Join(reasons, ", "),
 		)
 	}
-	return fmt.Sprintf("%s: %s (%s)", c.Src, name, c.Kind)
+	return fmt.Sprintf("%s: %s (%s)", src, name, kind)
 }
 
 func shortName(symbol string) string {
@@ -69,4 +76,31 @@ func shortName(symbol string) string {
 		return symbol[idx+1:]
 	}
 	return symbol
+}
+
+func sanitizeTextField(value string) string {
+	if value == "" {
+		return value
+	}
+
+	var b strings.Builder
+	b.Grow(len(value))
+
+	for _, r := range value {
+		if !unicode.IsControl(r) {
+			b.WriteRune(r)
+			continue
+		}
+
+		switch {
+		case r <= 0xFF:
+			fmt.Fprintf(&b, "\\x%02X", r)
+		case r <= 0xFFFF:
+			fmt.Fprintf(&b, "\\u%04X", r)
+		default:
+			fmt.Fprintf(&b, "\\U%08X", r)
+		}
+	}
+
+	return b.String()
 }

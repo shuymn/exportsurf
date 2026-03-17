@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/shuymn/exportsurf/pkg/report"
 )
 
 type candidateReport struct {
@@ -143,6 +145,28 @@ func TestRunTextOutput(t *testing.T) {
 
 		if stdout.String() != "" {
 			t.Fatalf("expected empty output, got:\n%s", stdout.String())
+		}
+	})
+
+	t.Run("control characters are escaped", func(t *testing.T) {
+		var stdout bytes.Buffer
+		err := writeOutput(&stdout, []report.Candidate{
+			{
+				Symbol:           "example.com/adversarial/lib.Type\nName",
+				Kind:             "type",
+				Src:              "lib/\x1b[31mowned.go:3",
+				InternalRefCount: 1,
+				Confidence:       report.ConfidenceLow,
+				Reasons:          []string{"bad\tinput", "line\nbreak"},
+			},
+		}, false, false)
+		if err != nil {
+			t.Fatalf("writeOutput failed: %v", err)
+		}
+
+		want := "lib/\\x1B[31mowned.go:3: Type\\x0AName (type) [low: bad\\x09input, line\\x0Abreak]\n"
+		if stdout.String() != want {
+			t.Fatalf("unexpected escaped text output\nwant:\n%s\ngot:\n%s", want, stdout.String())
 		}
 	})
 }
