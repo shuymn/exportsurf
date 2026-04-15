@@ -11,7 +11,7 @@ vars:
   BIN_DIR: bin
   BINARY_PATH: "{{.BIN_DIR}}/{{.BINARY_NAME}}"
   COVERAGE_FILE: coverage.out
-  GOLANGCI_LINT_VERSION: v2.11.2
+  GOLANGCI_LINT_VERSION: v2.11.4
   GITLEAKS_BIN: gitleaks
 
 tasks:
