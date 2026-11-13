@@ -2,7 +2,7 @@ module github.com/shuymn/exportsurf
 
 go 1.25.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/alecthomas/kong v1.17.0
